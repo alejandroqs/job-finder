@@ -36,11 +36,11 @@ def send_notifications(announcements: List[ParsedAnnouncement]) -> None:
 
 
 def _send_to_discord(announcements: List[ParsedAnnouncement], webhook_url: str) -> None:
-    """Sends announcements to a Discord Webhook using Rich Embeds, chunked in groups of 10."""
+    """Sends announcements to a Discord Webhook using Rich Embeds, chunked safely to avoid payload limits."""
     print(f"📢 Sending {len(announcements)} notification(s) to Discord...")
     
-    # Discord supports max 10 embeds per message
-    chunk_size = 10
+    # Reduced chunk size to prevent hitting Discord's total character payload ceiling
+    chunk_size = 2
     for i in range(0, len(announcements), chunk_size):
         chunk = announcements[i:i + chunk_size]
         embeds = []

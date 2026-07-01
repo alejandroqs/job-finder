@@ -444,7 +444,7 @@ def test_validator_structured_output_config(monkeypatch):
     
     assert config.response_mime_type == "application/json"
     assert config.response_schema == JobOfferValidation
-    assert config.thinking_config.thinking_budget == 0
+    assert str(config.thinking_config.thinking_level).lower().endswith("low")
 
 
 def test_validator_default_true_on_parse_failure(monkeypatch):

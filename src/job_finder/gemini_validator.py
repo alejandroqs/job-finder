@@ -150,7 +150,7 @@ class GeminiValidator(BaseAIValidator):
                         system_instruction=self.system_prompt,
                         response_mime_type="application/json",
                         response_schema=JobOfferValidation,
-                        thinking_config=types.ThinkingConfig(thinking_budget=0)
+                        thinking_config=types.ThinkingConfig(thinking_level="low")
                     )
                 )
 

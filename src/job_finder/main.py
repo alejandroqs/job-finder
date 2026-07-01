@@ -262,12 +262,15 @@ def run_scan(
                 print(f"📅 Target Date: {resolved_date.strftime('%Y-%m-%d')} (BOP format: {resolved_date.day}-{resolved_date.month}-{resolved_date.year % 100})")
                 fetcher = BOPFetcher()
                 bop_parser = BOPParser()
+                tmp_pdf_path = Path("/tmp/bop_bulletin.pdf")
                 
                 try:
                     print("🌐 Connecting to www.boplaspalmas.net...")
                     pdf_stream = fetcher.fetch(resolved_date)
-                    print("📥 Download complete! Parsing PDF in memory...")
-                    pages = bop_parser.parse(pdf_stream)
+                    print("📥 Download complete! Offloading to disk buffer...")
+                    tmp_pdf_path.write_bytes(pdf_stream.getvalue())
+                    print("🔎 Parsing PDF from ephemeral storage...")
+                    pages = bop_parser.parse(tmp_pdf_path)
                 except BOPNotPublishedError as e:
                     if is_default_date:
                         print(f"⚠️  No BOP bulletin found for today ({resolved_date.strftime('%Y-%m-%d')}).")
@@ -278,15 +281,22 @@ def run_scan(
                                 print(f"⚠️  Lambda Mode: Skipping fallback bulletin dated {latest_date.strftime('%Y-%m-%d')} to avoid duplicate notifications.")
                             else:
                                 print(f"📥 Found and downloaded latest BOP bulletin from: {latest_date.strftime('%Y-%m-%d')}")
-                                pages = bop_parser.parse(pdf_stream)
+                                tmp_pdf_path.write_bytes(pdf_stream.getvalue())
+                                pages = bop_parser.parse(tmp_pdf_path)
                         except Exception as fallback_err:
                             print(f"❌ BOP fallback failed: {fallback_err}", file=sys.stderr)
+                        finally:
+                            if tmp_pdf_path.exists():
+                                tmp_pdf_path.unlink(missing_ok=True)
                     else:
                         print(f"⚠️  {e}")
                 except BOPFetchError as e:
                     print(f"❌ BOP download failed: {e}", file=sys.stderr)
                 except Exception as e:
                     print(f"❌ Unexpected BOP error: {e}", file=sys.stderr)
+                finally:
+                    if tmp_pdf_path.exists():
+                        tmp_pdf_path.unlink(missing_ok=True)
                     
             elif src == "BOC":
                 print(f"📅 Target Date: {resolved_date.strftime('%Y-%m-%d')}")

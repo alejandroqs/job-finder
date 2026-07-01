@@ -193,3 +193,24 @@ To successfully operate under the Google AI Studio free tier limits (5-10 RPM, 1
 ### 1. Spanish Source Grouping (`ES`)
 * The CLI scanner supports the `--source ES` option which dynamically aggregates all Spanish job sources: `BOP`, `BOC`, `BOE`, and `SAGULPA` for online scans.
 
+---
+
+## 🗺️ Domain Insights: AWS Lambda Stateless Architecture & Notifications
+
+### 1. Unified Execution Architecture
+* The orchestration entrypoint resides in [main.py](file:///c:/Users/muk04/Development/PyCharmProjects/job-finder/src/job_finder/main.py). It features the standard CLI main entrypoint (`def main()`) and a cloud entrypoint (`def lambda_handler(event, context)`).
+* Both entrypoints delegate core scanning to `run_scan()`.
+* **Important**: To run in AWS Lambda without needing `python-dotenv` packaged as a dependency, the import and call of `dotenv.load_dotenv()` are wrapped in a silent try-except `ImportError` block inside `main()`. This keeps standard local environment loading intact but prevents crash loops in the cloud.
+
+### 2. Stateless Date-Filtering Constraints
+* Because AWS Lambda is completely ephemeral and lacks access to a persistent disk or local database, the crawler avoids duplicating alerts by verifying publishing dates.
+* **BOP/BOC/BOE Fallbacks**: When `is_lambda=True` is active, any fallback execution resulting from empty today bulletins (e.g. weekends) checks if the `latest_date` is strictly older than `resolved_date`. If so, the parser/scrape for that source is bypassed to prevent sending old/duplicated notifications.
+* **Constant Ingestion Feeds**: Feeds pulling all active openings (SAGULPA, EPSO, EURES, eu-LISA) are passed the resolved target date to filter out anything that wasn't published today.
+
+### 3. Notification Dispatching (`notifier.py`)
+* The dispatching logic is housed in [notifier.py](file:///c:/Users/muk04/Development/PyCharmProjects/job-finder/src/job_finder/notifier.py).
+* It parses environment variables to decide which channels to alert: `DISCORD_WEBHOOK_URL` (Discord option), and both `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` (Telegram option).
+* **Discord Chunks**: Discord webhook payloads allow a maximum of 10 embeds. The dispatcher chunks list arrays into sets of 10 and sends them sequentially with a `time.sleep(0.5)` to avoid HTTP 429 rate limit resets.
+* **Telegram HTML Formatting**: Telegram messages are parsed as HTML. It handles Unicode and HTML escaping natively, executing separate sequential POST requests to the `sendMessage` endpoint with a `time.sleep(0.5)` cooldown.
+
+

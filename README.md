@@ -146,6 +146,53 @@ The tool includes an optional post-filter step that sends matching candidate ann
 
 ---
 
+## ☁️ AWS Lambda & Stateless Notifications
+
+The tool has been engineered to run seamlessly as a stateless **AWS Lambda** function while remaining 100% backward-compatible with local terminal execution.
+
+### 1. Stateless Execution & Filtering
+In a standard serverless environment (like AWS Lambda), writing state to disk or databases to prevent duplicate notifications is not always viable. The tool handles this statelessly:
+- **Fallback Protection**: If a bulletin source (BOP, BOC, BOE) falls back to a previous date due to weekend or holiday empty runs, Lambda mode (`is_lambda=True`) automatically skips these older items.
+- **Strict Today Filters**: Real-time sources that default to pulling all active postings (SAGULPA, EPSO, EURES, eu-LISA) are filtered strictly to only notify on jobs published on the current date.
+
+### 2. Universal Notifications
+If the respective environment variables are defined, the system automatically triggers notifications:
+- **Option A (Discord Webhooks)**: Triggered by setting `DISCORD_WEBHOOK_URL`. Sends structured rich embeds formatted with title, description, keywords, and reference links (grouped in batches of 10).
+- **Option B (Telegram Bot API)**: Triggered by setting `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. Sends clean HTML-formatted messages with a built-in rate-limit guard.
+
+Both channels can be configured to run concurrently.
+
+### 3. Packaging for AWS Lambda
+Since AWS Lambda runs on Amazon Linux, any binary dependencies must be packaged for Linux. Follow these steps in your PowerShell terminal to prepare the deployment zip:
+
+```powershell
+# Create package directory
+New-Item -ItemType Directory -Force -Path ".\dist_lambda\package"
+
+# Download Linux-compatible binaries for Python 3.11
+pip install `
+  --platform manylinux2014_x86_64 `
+  --target .\dist_lambda\package `
+  --only-binary=:all: `
+  --implementation cp `
+  --python 3.11 `
+  requests pdfplumber pyyaml httpx pydantic google-genai
+
+# Copy the source code
+Copy-Item -Recurse -Force -Path ".\src\job_finder" -Destination ".\dist_lambda\package"
+
+# Generate the deployment package
+Compress-Archive -Path ".\dist_lambda\package\*" -DestinationPath ".\dist_lambda\lambda_function.zip" -Force
+
+# Clean up
+Remove-Item -Recurse -Force -Path ".\dist_lambda\package"
+```
+
+In your AWS Lambda console, set the handler to: **`job_finder.main.lambda_handler`** with a Python 3.11 runtime and increase the execution timeout to at least **2 minutes**.
+
+---
+
+
 ## 🧪 Automated Tests (TDD First)
 
 Following Test-Driven Development (TDD) best practices, the test suite utilizes local PDF and XML fixtures rather than scraping the web during tests. This ensures complete reproducibility and high performance.

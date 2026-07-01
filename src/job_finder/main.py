@@ -33,6 +33,7 @@ from job_finder.eulisa_parser import EULISAParser
 # Common Components
 from job_finder.keyword_filter import KeywordFilter
 from job_finder.interfaces import ParsedAnnouncement, BOPage
+from job_finder.notifier import send_notifications
 
 
 def parse_date(date_str: str) -> datetime.date:
@@ -116,6 +117,361 @@ def print_source_header(source_name: str) -> None:
     print("╚" + "═" * 58 + "╝")
 
 
+def run_scan(
+    target_date: Optional[datetime.date] = None,
+    sources: Optional[List[str]] = None,
+    config_path: Optional[Path] = None,
+    no_ai: bool = False,
+    is_lambda: bool = False,
+    local_file: Optional[Path] = None
+) -> List[ParsedAnnouncement]:
+    """
+    Core execution logic for scanning.
+    Extracts IT job announcements from designated Spanish & European bulletins.
+    """
+    # Initialize keyword filter
+    try:
+        kf = KeywordFilter(config_path=config_path)
+    except Exception as e:
+        print(f"❌ Error loading keyword configuration: {e}", file=sys.stderr)
+        raise e
+        
+    all_announcements: List[ParsedAnnouncement] = []
+    
+    # CASE 1: Scan a local file
+    if local_file:
+        if not local_file.exists():
+            print(f"❌ Error: Local file '{local_file}' does not exist.", file=sys.stderr)
+            return []
+            
+        # Detect source type by extension or signature
+        suffix = local_file.suffix.lower()
+        if suffix == ".pdf":
+            source_type = "BOP"
+        elif suffix in (".xml", ".rss"):
+            # Distinguish between BOC and BOE by checking for RSS tag vs sumario/response tag
+            try:
+                with open(local_file, "r", encoding="utf-8", errors="replace") as f:
+                    head = f.read(1000)
+                if "<rss" in head:
+                    source_type = "BOC"
+                elif "<response" in head or "<sumario" in head:
+                    source_type = "BOE"
+                else:
+                    source_type = "BOE" if "boe" in local_file.name.lower() else "BOC"
+            except Exception:
+                source_type = "BOC"
+        elif suffix in (".html", ".htm"):
+            # Distinguish between SAGULPA and EULISA
+            if "eulisa" in local_file.name.lower():
+                source_type = "EULISA"
+            else:
+                try:
+                    with open(local_file, "r", encoding="utf-8", errors="replace") as f:
+                        head = f.read(2000)
+                    if "eulisa" in head.lower():
+                        source_type = "EULISA"
+                    else:
+                        source_type = "SAGULPA"
+                except Exception:
+                    source_type = "SAGULPA"
+        elif suffix == ".csv":
+            source_type = "EPSO"
+        elif suffix == ".json":
+            source_type = "EURES"
+        else:
+            # Check file signature
+            try:
+                with open(local_file, "rb") as f:
+                    sig = f.read(4)
+                if sig.startswith(b"%PDF"):
+                    source_type = "BOP"
+                elif sig.startswith(b"<?xml") or sig.startswith(b"<rss") or b"<" in sig:
+                    with open(local_file, "r", encoding="utf-8", errors="replace") as f:
+                        head = f.read(1000)
+                    if "<rss" in head:
+                        source_type = "BOC"
+                    else:
+                        source_type = "BOE"
+                elif sig.startswith(b"<!DO") or sig.startswith(b"<htm") or b"<html" in sig.lower():
+                    if "eulisa" in local_file.name.lower():
+                        source_type = "EULISA"
+                    else:
+                        source_type = "SAGULPA"
+                elif sig.startswith(b"{") or sig.startswith(b"["):
+                    source_type = "EURES"
+                elif b"," in sig or b";" in sig:
+                    source_type = "EPSO"
+                else:
+                    print(f"❌ Error: Unrecognized file type for '{local_file.name}'. Must be PDF, XML, HTML, CSV, or JSON.", file=sys.stderr)
+                    return []
+            except Exception as e:
+                print(f"❌ Error detecting file type: {e}", file=sys.stderr)
+                return []
+                
+        print(f"📂 Scanning local {source_type} file: {local_file.name}")
+        print_source_header(source_type)
+        
+        try:
+            if source_type == "BOP":
+                parser_inst = BOPParser()
+            elif source_type == "BOC":
+                parser_inst = BOCParser()
+            elif source_type == "BOE":
+                parser_inst = BOEParser()
+            elif source_type == "SAGULPA":
+                parser_inst = SagulpaParser()
+            elif source_type == "EPSO":
+                parser_inst = EPSOParser()
+            elif source_type == "EURES":
+                parser_inst = EURESParser()
+            elif source_type == "EULISA":
+                parser_inst = EULISAParser()
+            else:
+                raise ValueError(f"Unknown source type: {source_type}")
+                
+            pages = parser_inst.parse(local_file)
+            print(f"🔎 Scanning {len(pages)} parsed sections for IT opportunities...")
+            
+            for page in pages:
+                all_announcements.extend(kf.search_page(page))
+        except Exception as e:
+            print(f"❌ Error processing local file: {e}", file=sys.stderr)
+            return []
+            
+    # CASE 2: Scan live online streams
+    else:
+        is_default_date = target_date is None
+        resolved_date = datetime.date.today() if is_default_date else target_date
+        
+        # Decide which sources to run
+        if not sources or "ALL" in sources:
+            sources_to_run = ["BOP", "BOC", "BOE", "SAGULPA", "EPSO", "EURES", "EULISA"]
+        elif "EU" in sources:
+            sources_to_run = ["EPSO", "EURES", "EULISA"]
+        elif "ES" in sources:
+            sources_to_run = ["BOP", "BOC", "BOE", "SAGULPA"]
+        else:
+            sources_to_run = sources
+        
+        for src in sources_to_run:
+            print_source_header(src)
+            pages: List[BOPage] = []
+            
+            if src == "BOP":
+                print(f"📅 Target Date: {resolved_date.strftime('%Y-%m-%d')} (BOP format: {resolved_date.day}-{resolved_date.month}-{resolved_date.year % 100})")
+                fetcher = BOPFetcher()
+                bop_parser = BOPParser()
+                
+                try:
+                    print("🌐 Connecting to www.boplaspalmas.net...")
+                    pdf_stream = fetcher.fetch(resolved_date)
+                    print("📥 Download complete! Parsing PDF in memory...")
+                    pages = bop_parser.parse(pdf_stream)
+                except BOPNotPublishedError as e:
+                    if is_default_date:
+                        print(f"⚠️  No BOP bulletin found for today ({resolved_date.strftime('%Y-%m-%d')}).")
+                        print("🔄 Falling back to the latest available bulletin on the website...")
+                        try:
+                            pdf_stream, latest_date = fetcher.fetch_latest()
+                            if is_lambda and latest_date < resolved_date:
+                                print(f"⚠️  Lambda Mode: Skipping fallback bulletin dated {latest_date.strftime('%Y-%m-%d')} to avoid duplicate notifications.")
+                            else:
+                                print(f"📥 Found and downloaded latest BOP bulletin from: {latest_date.strftime('%Y-%m-%d')}")
+                                pages = bop_parser.parse(pdf_stream)
+                        except Exception as fallback_err:
+                            print(f"❌ BOP fallback failed: {fallback_err}", file=sys.stderr)
+                    else:
+                        print(f"⚠️  {e}")
+                except BOPFetchError as e:
+                    print(f"❌ BOP download failed: {e}", file=sys.stderr)
+                except Exception as e:
+                    print(f"❌ Unexpected BOP error: {e}", file=sys.stderr)
+                    
+            elif src == "BOC":
+                print(f"📅 Target Date: {resolved_date.strftime('%Y-%m-%d')}")
+                fetcher = BOCFetcher()
+                boc_parser = BOCParser()
+                
+                try:
+                    print("🌐 Connecting to www.gobiernodecanarias.org RSS feeds...")
+                    xml_stream = fetcher.fetch(resolved_date)
+                    pages = boc_parser.parse(xml_stream)
+                    
+                    if not pages and is_default_date:
+                        print(f"⚠️  No BOC announcements found for today ({resolved_date.strftime('%Y-%m-%d')}).")
+                        print("🔄 Falling back to the latest date present in the RSS feed...")
+                        try:
+                            xml_stream, latest_date = fetcher.fetch_latest()
+                            if is_lambda and latest_date < resolved_date:
+                                print(f"⚠️  Lambda Mode: Skipping fallback announcements dated {latest_date.strftime('%Y-%m-%d')} to avoid duplicate notifications.")
+                            else:
+                                print(f"📥 Found and downloaded latest BOC announcements from: {latest_date.strftime('%Y-%m-%d')}")
+                                pages = boc_parser.parse(xml_stream)
+                        except Exception as fallback_err:
+                            print(f"❌ BOC fallback failed: {fallback_err}", file=sys.stderr)
+                except BOCFetchError as e:
+                    print(f"❌ BOC download failed: {e}", file=sys.stderr)
+                except Exception as e:
+                    print(f"❌ Unexpected BOC error: {e}", file=sys.stderr)
+
+            elif src == "BOE":
+                print(f"📅 Target Date: {resolved_date.strftime('%Y-%m-%d')}")
+                fetcher = BOEFetcher()
+                boe_parser = BOEParser(pdf_fetcher=fetcher)
+                
+                try:
+                    print("🌐 Connecting to www.boe.es Open Data API...")
+                    xml_stream = fetcher.fetch(resolved_date)
+                    print("📥 Download complete! Parsing XML in memory...")
+                    pages = boe_parser.parse(xml_stream)
+                    
+                    if not pages and is_default_date:
+                        print(f"⚠️  No BOE announcements found for today ({resolved_date.strftime('%Y-%m-%d')}).")
+                        print("🔄 Falling back to the latest available bulletin...")
+                        try:
+                            xml_stream, latest_date = fetcher.fetch_latest()
+                            if is_lambda and latest_date < resolved_date:
+                                print(f"⚠️  Lambda Mode: Skipping fallback announcements dated {latest_date.strftime('%Y-%m-%d')} to avoid duplicate notifications.")
+                            else:
+                                print(f"📥 Found and downloaded latest BOE bulletin from: {latest_date.strftime('%Y-%m-%d')}")
+                                pages = boe_parser.parse(xml_stream)
+                        except Exception as fallback_err:
+                            print(f"❌ BOE fallback failed: {fallback_err}", file=sys.stderr)
+                except BOENotPublishedError as e:
+                    if is_default_date:
+                        print(f"⚠️  No BOE bulletin found for today ({resolved_date.strftime('%Y-%m-%d')}).")
+                        print("🔄 Falling back to the latest available bulletin...")
+                        try:
+                            xml_stream, latest_date = fetcher.fetch_latest()
+                            if is_lambda and latest_date < resolved_date:
+                                print(f"⚠️  Lambda Mode: Skipping fallback announcements dated {latest_date.strftime('%Y-%m-%d')} to avoid duplicate notifications.")
+                            else:
+                                print(f"📥 Found and downloaded latest BOE bulletin from: {latest_date.strftime('%Y-%m-%d')}")
+                                pages = boe_parser.parse(xml_stream)
+                        except Exception as fallback_err:
+                            print(f"❌ BOE fallback failed: {fallback_err}", file=sys.stderr)
+                    else:
+                        print(f"⚠️  {e}")
+                except BOEFetchError as e:
+                    print(f"❌ BOE download failed: {e}", file=sys.stderr)
+                except Exception as e:
+                    print(f"❌ Unexpected BOE error: {e}", file=sys.stderr)
+            
+            elif src == "SAGULPA":
+                print(f"📅 Target Date: {resolved_date.strftime('%Y-%m-%d') if (target_date or is_lambda) else 'ALL ACTIVE OPENINGS'}")
+                fetcher = SagulpaFetcher()
+                sagulpa_parser = SagulpaParser(fetcher=fetcher)
+                
+                try:
+                    print("🌐 Connecting to www.sagulpa.com job board...")
+                    list_stream = fetcher.fetch(resolved_date)
+                    print("📥 Download complete! Parsing HTML and deep-scanning active details...")
+                    pages = sagulpa_parser.parse(list_stream, target_date=resolved_date if is_lambda else target_date)
+                except Exception as e:
+                    print(f"❌ Sagulpa download/parse failed: {e}", file=sys.stderr)
+            
+            elif src == "EPSO":
+                print(f"📅 Target Date: {resolved_date.strftime('%Y-%m-%d') if (target_date or is_lambda) else 'ALL ACTIVE OPENINGS'}")
+                fetcher = EPSOFetcher()
+                epso_parser = EPSOParser()
+                
+                try:
+                    print("🌐 Connecting to EU Open Data CKAN API...")
+                    raw_data = fetcher.fetch_raw()
+                    print("📥 Download complete! Parsing CSV...")
+                    pages = epso_parser.parse_raw(raw_data, target_date=resolved_date if is_lambda else target_date)
+                except Exception as e:
+                    print(f"❌ EPSO download/parse failed: {e}", file=sys.stderr)
+                    
+            elif src == "EURES":
+                print(f"📅 Target Date: {resolved_date.strftime('%Y-%m-%d') if (target_date or is_lambda) else 'ALL ACTIVE OPENINGS'}")
+                fetcher = EURESFetcher()
+                eures_parser = EURESParser()
+                
+                try:
+                    raw_data = fetcher.fetch_raw()
+                    if raw_data:
+                        print("📥 Download complete! Parsing JSON...")
+                        pages = eures_parser.parse_raw(raw_data, target_date=resolved_date if is_lambda else target_date)
+                    else:
+                        print("⚠️ Skipping EURES scanning due to live fetch bypass/failure.")
+                except Exception as e:
+                    print(f"❌ EURES download/parse failed: {e}", file=sys.stderr)
+                    
+            elif src == "EULISA":
+                print(f"📅 Target Date: {resolved_date.strftime('%Y-%m-%d') if (target_date or is_lambda) else 'ALL ACTIVE OPENINGS'}")
+                fetcher = EULISAFetcher()
+                eulisa_parser = EULISAParser()
+                
+                try:
+                    print("🌐 Connecting to eu-LISA Careers Portal...")
+                    raw_data = fetcher.fetch_raw()
+                    print("📥 Download complete! Parsing HTML...")
+                    pages = eulisa_parser.parse_raw(raw_data, target_date=resolved_date if is_lambda else target_date)
+                except Exception as e:
+                    print(f"❌ eu-LISA download/parse failed: {e}", file=sys.stderr)
+            
+            # Scan the pages/items for this source
+            if pages:
+                print(f"🔎 Scanning {len(pages)} pages/entries in this bulletin...")
+                src_announcements = []
+                for page in pages:
+                    src_announcements.extend(kf.search_page(page))
+                
+                if src_announcements:
+                    print(f"🎉 Success: Found {len(src_announcements)} matching announcement(s)!")
+                    all_announcements.extend(src_announcements)
+                else:
+                    print("ℹ️  No matching IT jobs found in this source for this date.")
+            else:
+                print("ℹ️  No target pages were fetched or parsed for this source.")
+
+    if all_announcements and not no_ai:
+        from job_finder.gemini_validator import GeminiValidator
+        validator = GeminiValidator()
+        if validator.enabled:
+            print(f"\n🤖 Running AI validation on {len(all_announcements)} candidate(s)...")
+            all_announcements = validator.validate_batch(all_announcements)
+            print(f"✅ AI validation complete. {len(all_announcements)} confirmed as relevant.")
+
+    return all_announcements
+
+
+def lambda_handler(event, context):
+    """
+    AWS Lambda entrypoint triggered by EventBridge (Cron) or custom invocation.
+    Event payload parameters (optional):
+      - sources: List of source names or groups to scan (e.g. ["ES", "EULISA"])
+      - no_ai: Set to True to bypass Gemini AI validation
+    """
+    print("🚀 AWS Lambda Job Finder trigger started!")
+    
+    # Load sources and arguments from event payload, default to ALL
+    sources = event.get("sources", ["ALL"]) if isinstance(event, dict) else ["ALL"]
+    no_ai = event.get("no_ai", False) if isinstance(event, dict) else False
+
+    # Execute core scanning with is_lambda=True to activate stateless filtering
+    findings = run_scan(
+        target_date=None,  # Defaults to today
+        sources=sources,
+        no_ai=no_ai,
+        is_lambda=True
+    )
+    
+    # Send notifications via Discord and/or Telegram if configured in Env Variables
+    if findings:
+        send_notifications(findings)
+        print(f"📢 AWS Lambda finished. Sent notifications for {len(findings)} job offers.")
+    else:
+        print("📢 AWS Lambda finished. No job offers matched today.")
+        
+    return {
+        "statusCode": 200,
+        "body": f"Successfully processed. Found {len(findings)} relevant jobs."
+    }
+
+
 def main() -> None:
     try:
         from dotenv import load_dotenv
@@ -182,299 +538,15 @@ def main() -> None:
     print("  BOLETÍN OFICIAL - IT JOB SCANNER  ".center(60, "═"))
     print("═" * 60)
     
-    # Initialize keyword filter
-    try:
-        kf = KeywordFilter(config_path=args.config)
-    except Exception as e:
-        print(f"❌ Error loading keyword configuration: {e}", file=sys.stderr)
-        sys.exit(2)
-        
-    all_announcements: List[ParsedAnnouncement] = []
-    
-    # CASE 1: Scan a local file
-    if args.file:
-        if not args.file.exists():
-            print(f"❌ Error: Local file '{args.file}' does not exist.", file=sys.stderr)
-            sys.exit(2)
-            
-        # Detect source type by extension or signature
-        suffix = args.file.suffix.lower()
-        if suffix == ".pdf":
-            source_type = "BOP"
-        elif suffix in (".xml", ".rss"):
-            # Distinguish between BOC and BOE by checking for RSS tag vs sumario/response tag
-            try:
-                with open(args.file, "r", encoding="utf-8", errors="replace") as f:
-                    head = f.read(1000)
-                if "<rss" in head:
-                    source_type = "BOC"
-                elif "<response" in head or "<sumario" in head:
-                    source_type = "BOE"
-                else:
-                    source_type = "BOE" if "boe" in args.file.name.lower() else "BOC"
-            except Exception:
-                source_type = "BOC"
-        elif suffix in (".html", ".htm"):
-            # Distinguish between SAGULPA and EULISA
-            if "eulisa" in args.file.name.lower():
-                source_type = "EULISA"
-            else:
-                try:
-                    with open(args.file, "r", encoding="utf-8", errors="replace") as f:
-                        head = f.read(2000)
-                    if "eulisa" in head.lower():
-                        source_type = "EULISA"
-                    else:
-                        source_type = "SAGULPA"
-                except Exception:
-                    source_type = "SAGULPA"
-        elif suffix == ".csv":
-            source_type = "EPSO"
-        elif suffix == ".json":
-            source_type = "EURES"
-        else:
-            # Check file signature
-            try:
-                with open(args.file, "rb") as f:
-                    sig = f.read(4)
-                if sig.startswith(b"%PDF"):
-                    source_type = "BOP"
-                elif sig.startswith(b"<?xml") or sig.startswith(b"<rss") or b"<" in sig:
-                    with open(args.file, "r", encoding="utf-8", errors="replace") as f:
-                        head = f.read(1000)
-                    if "<rss" in head:
-                        source_type = "BOC"
-                    else:
-                        source_type = "BOE"
-                elif sig.startswith(b"<!DO") or sig.startswith(b"<htm") or b"<html" in sig.lower():
-                    if "eulisa" in args.file.name.lower():
-                        source_type = "EULISA"
-                    else:
-                        source_type = "SAGULPA"
-                elif sig.startswith(b"{") or sig.startswith(b"["):
-                    source_type = "EURES"
-                elif b"," in sig or b";" in sig:
-                    source_type = "EPSO"
-                else:
-                    print(f"❌ Error: Unrecognized file type for '{args.file.name}'. Must be PDF, XML, HTML, CSV, or JSON.", file=sys.stderr)
-                    sys.exit(2)
-            except Exception as e:
-                print(f"❌ Error detecting file type: {e}", file=sys.stderr)
-                sys.exit(2)
-                
-        print(f"📂 Scanning local {source_type} file: {args.file.name}")
-        print_source_header(source_type)
-        
-        try:
-            if source_type == "BOP":
-                parser_inst = BOPParser()
-            elif source_type == "BOC":
-                parser_inst = BOCParser()
-            elif source_type == "BOE":
-                parser_inst = BOEParser()
-            elif source_type == "SAGULPA":
-                parser_inst = SagulpaParser()
-            elif source_type == "EPSO":
-                parser_inst = EPSOParser()
-            elif source_type == "EURES":
-                parser_inst = EURESParser()
-            elif source_type == "EULISA":
-                parser_inst = EULISAParser()
-            else:
-                raise ValueError(f"Unknown source type: {source_type}")
-                
-            pages = parser_inst.parse(args.file)
-            print(f"🔎 Scanning {len(pages)} parsed sections for IT opportunities...")
-            
-            for page in pages:
-                all_announcements.extend(kf.search_page(page))
-        except Exception as e:
-            print(f"❌ Error processing local file: {e}", file=sys.stderr)
-            sys.exit(2)
-            
-    # CASE 2: Scan live online streams
-    else:
-        is_default_date = args.date is None
-        target_date = datetime.date.today() if is_default_date else args.date
-        
-        # Decide which sources to run
-        if args.source == "ALL":
-            sources_to_run = ["BOP", "BOC", "BOE", "SAGULPA", "EPSO", "EURES", "EULISA"]
-        elif args.source == "EU":
-            sources_to_run = ["EPSO", "EURES", "EULISA"]
-        elif args.source == "ES":
-            sources_to_run = ["BOP", "BOC", "BOE", "SAGULPA"]
-        else:
-            sources_to_run = [args.source]
-        
-        for src in sources_to_run:
-            print_source_header(src)
-            pages: List[BOPage] = []
-            
-            if src == "BOP":
-                print(f"📅 Target Date: {target_date.strftime('%Y-%m-%d')} (BOP format: {target_date.day}-{target_date.month}-{target_date.year % 100})")
-                fetcher = BOPFetcher()
-                bop_parser = BOPParser()
-                
-                try:
-                    print("🌐 Connecting to www.boplaspalmas.net...")
-                    pdf_stream = fetcher.fetch(target_date)
-                    print("📥 Download complete! Parsing PDF in memory...")
-                    pages = bop_parser.parse(pdf_stream)
-                except BOPNotPublishedError as e:
-                    if is_default_date:
-                        print(f"⚠️  No BOP bulletin found for today ({target_date.strftime('%Y-%m-%d')}).")
-                        print("🔄 Falling back to the latest available bulletin on the website...")
-                        try:
-                            pdf_stream, latest_date = fetcher.fetch_latest()
-                            print(f"📥 Found and downloaded latest BOP bulletin from: {latest_date.strftime('%Y-%m-%d')}")
-                            pages = bop_parser.parse(pdf_stream)
-                        except Exception as fallback_err:
-                            print(f"❌ BOP fallback failed: {fallback_err}", file=sys.stderr)
-                    else:
-                        print(f"⚠️  {e}")
-                except BOPFetchError as e:
-                    print(f"❌ BOP download failed: {e}", file=sys.stderr)
-                except Exception as e:
-                    print(f"❌ Unexpected BOP error: {e}", file=sys.stderr)
-                    
-            elif src == "BOC":
-                print(f"📅 Target Date: {target_date.strftime('%Y-%m-%d')}")
-                fetcher = BOCFetcher()
-                boc_parser = BOCParser()
-                
-                try:
-                    print("🌐 Connecting to www.gobiernodecanarias.org RSS feeds...")
-                    xml_stream = fetcher.fetch(target_date)
-                    pages = boc_parser.parse(xml_stream)
-                    
-                    if not pages and is_default_date:
-                        print(f"⚠️  No BOC announcements found for today ({target_date.strftime('%Y-%m-%d')}).")
-                        print("🔄 Falling back to the latest date present in the RSS feed...")
-                        try:
-                            xml_stream, latest_date = fetcher.fetch_latest()
-                            print(f"📥 Found and downloaded latest BOC announcements from: {latest_date.strftime('%Y-%m-%d')}")
-                            pages = boc_parser.parse(xml_stream)
-                        except Exception as fallback_err:
-                            print(f"❌ BOC fallback failed: {fallback_err}", file=sys.stderr)
-                except BOCFetchError as e:
-                    print(f"❌ BOC download failed: {e}", file=sys.stderr)
-                except Exception as e:
-                    print(f"❌ Unexpected BOC error: {e}", file=sys.stderr)
-
-            elif src == "BOE":
-                print(f"📅 Target Date: {target_date.strftime('%Y-%m-%d')}")
-                fetcher = BOEFetcher()
-                boe_parser = BOEParser(pdf_fetcher=fetcher)
-                
-                try:
-                    print("🌐 Connecting to www.boe.es Open Data API...")
-                    xml_stream = fetcher.fetch(target_date)
-                    print("📥 Download complete! Parsing XML in memory...")
-                    pages = boe_parser.parse(xml_stream)
-                    
-                    if not pages and is_default_date:
-                        print(f"⚠️  No BOE announcements found for today ({target_date.strftime('%Y-%m-%d')}).")
-                        print("🔄 Falling back to the latest available bulletin...")
-                        try:
-                            xml_stream, latest_date = fetcher.fetch_latest()
-                            print(f"📥 Found and downloaded latest BOE bulletin from: {latest_date.strftime('%Y-%m-%d')}")
-                            pages = boe_parser.parse(xml_stream)
-                        except Exception as fallback_err:
-                            print(f"❌ BOE fallback failed: {fallback_err}", file=sys.stderr)
-                except BOENotPublishedError as e:
-                    if is_default_date:
-                        print(f"⚠️  No BOE bulletin found for today ({target_date.strftime('%Y-%m-%d')}).")
-                        print("🔄 Falling back to the latest available bulletin...")
-                        try:
-                            xml_stream, latest_date = fetcher.fetch_latest()
-                            print(f"📥 Found and downloaded latest BOE bulletin from: {latest_date.strftime('%Y-%m-%d')}")
-                            pages = boe_parser.parse(xml_stream)
-                        except Exception as fallback_err:
-                            print(f"❌ BOE fallback failed: {fallback_err}", file=sys.stderr)
-                    else:
-                        print(f"⚠️  {e}")
-                except BOEFetchError as e:
-                    print(f"❌ BOE download failed: {e}", file=sys.stderr)
-                except Exception as e:
-                    print(f"❌ Unexpected BOE error: {e}", file=sys.stderr)
-            
-            elif src == "SAGULPA":
-                print(f"📅 Target Date: {target_date.strftime('%Y-%m-%d') if args.date else 'ALL ACTIVE OPENINGS'}")
-                fetcher = SagulpaFetcher()
-                sagulpa_parser = SagulpaParser(fetcher=fetcher)
-                
-                try:
-                    print("🌐 Connecting to www.sagulpa.com job board...")
-                    list_stream = fetcher.fetch(target_date)
-                    print("📥 Download complete! Parsing HTML and deep-scanning active details...")
-                    pages = sagulpa_parser.parse(list_stream, target_date=args.date)
-                except Exception as e:
-                    print(f"❌ Sagulpa download/parse failed: {e}", file=sys.stderr)
-            
-            elif src == "EPSO":
-                print(f"📅 Target Date: {target_date.strftime('%Y-%m-%d') if args.date else 'ALL ACTIVE OPENINGS'}")
-                fetcher = EPSOFetcher()
-                epso_parser = EPSOParser()
-                
-                try:
-                    print("🌐 Connecting to EU Open Data CKAN API...")
-                    raw_data = fetcher.fetch_raw()
-                    print("📥 Download complete! Parsing CSV...")
-                    pages = epso_parser.parse_raw(raw_data, target_date=args.date)
-                except Exception as e:
-                    print(f"❌ EPSO download/parse failed: {e}", file=sys.stderr)
-                    
-            elif src == "EURES":
-                print(f"📅 Target Date: {target_date.strftime('%Y-%m-%d') if args.date else 'ALL ACTIVE OPENINGS'}")
-                fetcher = EURESFetcher()
-                eures_parser = EURESParser()
-                
-                try:
-                    raw_data = fetcher.fetch_raw()
-                    if raw_data:
-                        print("📥 Download complete! Parsing JSON...")
-                        pages = eures_parser.parse_raw(raw_data, target_date=args.date)
-                    else:
-                        print("⚠️ Skipping EURES scanning due to live fetch bypass/failure.")
-                except Exception as e:
-                    print(f"❌ EURES download/parse failed: {e}", file=sys.stderr)
-                    
-            elif src == "EULISA":
-                print(f"📅 Target Date: {target_date.strftime('%Y-%m-%d') if args.date else 'ALL ACTIVE OPENINGS'}")
-                fetcher = EULISAFetcher()
-                eulisa_parser = EULISAParser()
-                
-                try:
-                    print("🌐 Connecting to eu-LISA Careers Portal...")
-                    raw_data = fetcher.fetch_raw()
-                    print("📥 Download complete! Parsing HTML...")
-                    pages = eulisa_parser.parse_raw(raw_data, target_date=args.date)
-                except Exception as e:
-                    print(f"❌ eu-LISA download/parse failed: {e}", file=sys.stderr)
-            
-            # Scan the pages/items for this source
-            if pages:
-                print(f"🔎 Scanning {len(pages)} pages/entries in this bulletin...")
-                src_announcements = []
-                for page in pages:
-                    src_announcements.extend(kf.search_page(page))
-                
-                if src_announcements:
-                    print(f"🎉 Success: Found {len(src_announcements)} matching announcement(s)!")
-                    all_announcements.extend(src_announcements)
-                else:
-                    print("ℹ️  No matching IT jobs found in this source for this date.")
-            else:
-                print("ℹ️  No target pages were fetched or parsed for this source.")
-
-    if all_announcements and not args.no_ai:
-        from job_finder.gemini_validator import GeminiValidator
-        validator = GeminiValidator()
-        if validator.enabled:
-            print(f"\n🤖 Running AI validation on {len(all_announcements)} candidate(s)...")
-            all_announcements = validator.validate_batch(all_announcements)
-            print(f"✅ AI validation complete. {len(all_announcements)} confirmed as relevant.")
+    # Run scan
+    all_announcements = run_scan(
+        target_date=args.date,
+        sources=[args.source],
+        config_path=args.config,
+        no_ai=args.no_ai,
+        is_lambda=False,
+        local_file=args.file
+    )
 
     print("\n" + "═" * 60)
     print("  SCAN COMPLETED - RESULTS SUMMARY  ".center(60, "═"))
@@ -482,7 +554,7 @@ def main() -> None:
     
     save_markdown_findings(all_announcements, args.output)
 
-    # Print final aggregated findings
+    # Print final aggregated findings to console
     if all_announcements:
         print(f"🎉 TOTAL SUCCESS: Found {len(all_announcements)} IT job opening(s) across all active sources!\n")
         for i, ann in enumerate(all_announcements, 1):
@@ -490,6 +562,9 @@ def main() -> None:
             if i < len(all_announcements):
                 print("─" * 60)
         print("═" * 60)
+        
+        # Trigger notifications locally if env vars are present (useful for CLI execution or local testing)
+        send_notifications(all_announcements)
         sys.exit(0)
     else:
         print("ℹ️  Finished searching. No IT-related jobs found matching your filters in any source.")

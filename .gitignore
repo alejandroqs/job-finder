@@ -44,4 +44,6 @@ venv.bak/
 .vscode/
 
 # Misc
-findings.md
+findings.*
+response.json
+dist_lambda/

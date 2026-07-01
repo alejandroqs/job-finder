@@ -213,4 +213,16 @@ To successfully operate under the Google AI Studio free tier limits (5-10 RPM, 1
 * **Discord Chunks**: Discord webhook payloads allow a maximum of 10 embeds. The dispatcher chunks list arrays into sets of 10 and sends them sequentially with a `time.sleep(0.5)` to avoid HTTP 429 rate limit resets.
 * **Telegram HTML Formatting**: Telegram messages are parsed as HTML. It handles Unicode and HTML escaping natively, executing separate sequential POST requests to the `sendMessage` endpoint with a `time.sleep(0.5)` cooldown.
 
+---
+
+## 🏗️ Strict Deployment Architecture & Constraints
+
+Every agent/assistant working on this repository must strictly adhere to the following rules for building, packaging, and deploying the AWS Lambda function:
+
+1. **No Native Windows Zipping**: Never build the Lambda deployment package (`.zip`) using Windows native tools like `Compress-Archive` or a local Windows Python interpreter. Doing so strips POSIX file permissions (specifically `0o755` executable permissions for shared libraries) and results in `Permission denied` errors during AWS Lambda execution. Always perform zipping inside a Linux environment (like the SAM build container).
+2. **Glibc Matching**: Never package dependencies using generic Debian or Ubuntu-based Docker images (such as `python:3.14-slim`). These environments may contain newer versions of `glibc` that are incompatible with the Amazon Linux target, causing dynamic linking runtime crashes. Only compile and package dependencies using the official AWS SAM build image: `public.ecr.aws/sam/build-python3.14`.
+3. **Read-Only Filesystem**: AWS Lambda execution environments are ephemeral and read-only except for the `/tmp` directory. Any temporary file downloads (e.g. streaming PDFs) must be explicitly routed to write to and read from the `/tmp/` directory.
+4. **Dependency Locking**: The `requirements.txt` file must enforce strict version locking using the `==` operator for stability. In addition, `cffi` must be explicitly defined in `requirements.txt` to prevent transient version or binary mismatches under different platforms.
+5. **Gitignore Policy**: Ensure that local build targets (`dist_lambda/`) and validation results (`response.json`) are kept strictly out of git version control to prevent repository bloat and credential/artifact leaks (already configured in `.gitignore`).
+
 

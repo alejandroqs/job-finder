@@ -146,49 +146,52 @@ The tool includes an optional post-filter step that sends matching candidate ann
 
 ---
 
-## ☁️ AWS Lambda & Stateless Notifications
+## ☁️ Cloud Deployment (AWS Lambda)
 
-The tool has been engineered to run seamlessly as a stateless **AWS Lambda** function while remaining 100% backward-compatible with local terminal execution.
+The tool has been engineered to run seamlessly as a stateless **AWS Lambda** function while remaining 100% backward-compatible with local terminal execution. Because the project relies on heavy precompiled C-extensions (`pypdfium2`, `cffi`, `google-genai`), native Windows zipping is bypassed. We use a Dockerized AWS SAM Python 3.14 build environment and an S3 bucket pipeline for deployments.
 
-### 1. Stateless Execution & Filtering
-In a standard serverless environment (like AWS Lambda), writing state to disk or databases to prevent duplicate notifications is not always viable. The tool handles this statelessly:
-- **Fallback Protection**: If a bulletin source (BOP, BOC, BOE) falls back to a previous date due to weekend or holiday empty runs, Lambda mode (`is_lambda=True`) automatically skips these older items.
-- **Strict Today Filters**: Real-time sources that default to pulling all active postings (SAGULPA, EPSO, EURES, eu-LISA) are filtered strictly to only notify on jobs published on the current date.
+### Prerequisites
 
-### 2. Universal Notifications
-If the respective environment variables are defined, the system automatically triggers notifications:
-- **Option A (Discord Webhooks)**: Triggered by setting `DISCORD_WEBHOOK_URL`. Sends structured rich embeds formatted with title, description, keywords, and reference links (grouped in batches of 10).
-- **Option B (Telegram Bot API)**: Triggered by setting `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. Sends clean HTML-formatted messages with a built-in rate-limit guard.
+Before deploying, ensure the following prerequisites are met:
+* **Docker**: Must be running (with WSL2 integration enabled if you are on Windows).
+* **AWS CLI**: Must be installed and authenticated via `aws configure`.
+* **S3 Bucket**: An S3 bucket must exist to store the deployment zip (e.g., `job-finder-bucket-muk04-2026`).
 
-Both channels can be configured to run concurrently.
+### Deployment Script
 
-### 3. Packaging for AWS Lambda
-Since AWS Lambda runs on Amazon Linux, any binary dependencies must be packaged for Linux. Follow these steps in your PowerShell terminal to prepare the deployment zip:
+The following master PowerShell deployment script automates the build and deployment process. It cleans old artifacts, natively compiles the Linux-compatible dependencies inside a SAM container, copies the application code, zips the package, uploads it to S3, updates the AWS Lambda function code, and executes a test invocation:
 
 ```powershell
-# Create package directory
-New-Item -ItemType Directory -Force -Path ".\dist_lambda\package"
+Remove-Item -Recurse -Force -Path ".\dist_lambda" -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force -Path ".\dist_lambda"
 
-# Download Linux-compatible binaries for Python 3.11
-pip install `
-  --platform manylinux2014_x86_64 `
-  --target .\dist_lambda\package `
-  --only-binary=:all: `
-  --implementation cp `
-  --python 3.11 `
-  requests pdfplumber pyyaml httpx pydantic google-genai
+docker run --rm -v "${PWD}:/app" public.ecr.aws/sam/build-python3.14 bash -c "
+  mkdir -p /app/dist_lambda/package &&
+  pip install --target /app/dist_lambda/package -r /app/requirements.txt &&
+  cp -r /app/src/job_finder /app/dist_lambda/package/ &&
+  cd /app/dist_lambda/package &&
+  zip -q -r /app/dist_lambda/lambda_function.zip . &&
+  rm -rf /app/dist_lambda/package
+"
 
-# Copy the source code
-Copy-Item -Recurse -Force -Path ".\src\job_finder" -Destination ".\dist_lambda\package"
+aws s3 cp .\dist_lambda\lambda_function.zip s3://job-finder-bucket-muk04-2026/lambda_function.zip
 
-# Generate the deployment package
-Compress-Archive -Path ".\dist_lambda\package\*" -DestinationPath ".\dist_lambda\lambda_function.zip" -Force
+aws lambda update-function-code `
+  --function-name job-finder-bot `
+  --s3-bucket job-finder-bucket-muk04-2026 `
+  --s3-key lambda_function.zip > $null
 
-# Clean up
-Remove-Item -Recurse -Force -Path ".\dist_lambda\package"
+Start-Sleep -Seconds 5
+aws lambda invoke `
+  --function-name job-finder-bot `
+  --payload '{\"sources\": [\"ALL\"], \"no_ai\": false}' `
+  --cli-binary-format raw-in-base64-out `
+  response.json
+
+Get-Content response.json
 ```
 
-In your AWS Lambda console, set the handler to: **`job_finder.main.lambda_handler`** with a Python 3.11 runtime and increase the execution timeout to at least **2 minutes**.
+In your AWS Lambda console, set the handler to **`job_finder.main.lambda_handler`** with a Python 3.14 runtime, and configure a timeout of at least **2 minutes 30 seconds**.
 
 ---
 

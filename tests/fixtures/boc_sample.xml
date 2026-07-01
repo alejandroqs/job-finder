@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Merged BOC Feeds</title>
+    <link>https://www.gobiernodecanarias.org/boc/feeds/</link>
+    <description>Combined BOC RSS feeds for IT job scanning</description>
+    <pubDate>Thu, 21 May 2026 12:00:00 GMT</pubDate>
+
+    <!-- Match 1: Section II (Autoridades y Personal) -> Oposiciones y concursos. IT Keyword: técnico de sistemas microinformáticos, Anchor: plaza -->
+    <item>
+      <title>Resolución del Director de la Agencia de Clarificación, por la que se convoca proceso selectivo.</title>
+      <link>https://www.gobiernodecanarias.org/boc/2026/097/001.html</link>
+      <description>&lt;h5&gt;II. Autoridades y Personal - Oposiciones y concursos - Consejería de Presidencia&lt;/h5&gt;&lt;h3&gt;&lt;b&gt;1668&lt;/b&gt; Resolución de 12 de mayo de 2026, por la que se convoca proceso selectivo para cubrir una plaza de Técnico de Sistemas Microinformáticos.&lt;/h3&gt;&lt;p&gt;CVE: &lt;tt&gt;BOC-A-2026-097-1668&lt;/p&gt;</description>
+      <pubDate>Thu, 21 May 2026 00:00:00 +0200</pubDate>
+      <guid isPermaLink="false">BOC-A-2026-097-1668</guid>
+    </item>
+
+    <!-- Match 2: Section III (Otras Resoluciones). IT Keyword: ingeniera de software, Anchor: convocatoria -->
+    <item>
+      <title>Resolución del Rector de la ULPGC por la que se publican las bases para la provisión de plazas.</title>
+      <link>https://www.gobiernodecanarias.org/boc/2026/097/002.html</link>
+      <description>&lt;h5&gt;III. Otras Resoluciones - Universidad de Las Palmas de Gran Canaria&lt;/h5&gt;&lt;h3&gt;&lt;b&gt;1669&lt;/b&gt; Resolución de 14 de mayo de 2026, por la que se publica la convocatoria de concurso público para plazas de personal contratado laboral temporal: Ingeniera de Software.&lt;/h3&gt;&lt;p&gt;CVE: &lt;tt&gt;BOC-A-2026-097-1669&lt;/p&gt;</description>
+      <pubDate>Thu, 21 May 2026 00:00:00 +0200</pubDate>
+      <guid isPermaLink="false">BOC-A-2026-097-1669</guid>
+    </item>
+
+    <!-- Match 3: Section V (Anuncios) -> Administración Local. IT Keyword: programador, Anchor: bases -->
+    <item>
+      <title>Anuncio del Excelentísimo Cabildo Insular de Tenerife relativo a bases del concurso.</title>
+      <link>https://www.gobiernodecanarias.org/boc/2026/097/003.html</link>
+      <description>&lt;h5&gt;V. Anuncios - Administración Local - Cabildo Insular de Tenerife&lt;/h5&gt;&lt;h3&gt;&lt;b&gt;1670&lt;/b&gt; Anuncio de 15 de mayo de 2026, relativo a las bases que han de regir la convocatoria para proveer plazas de Programador.&lt;/h3&gt;&lt;p&gt;CVE: &lt;tt&gt;BOC-A-2026-097-1670&lt;/p&gt;</description>
+      <pubDate>Thu, 21 May 2026 00:00:00 +0200</pubDate>
+      <guid isPermaLink="false">BOC-A-2026-097-1670</guid>
+    </item>
+
+    <!-- Fail 1: Non-target subsection in Section II (Nombramientos instead of Oposiciones y concursos) -->
+    <item>
+      <title>Nombramiento de personal en Consejería de Educación.</title>
+      <link>https://www.gobiernodecanarias.org/boc/2026/097/004.html</link>
+      <description>&lt;h5&gt;II. Autoridades y Personal - Nombramientos, situaciones e incidencias - Consejería de Educación&lt;/h5&gt;&lt;h3&gt;&lt;b&gt;1671&lt;/b&gt; Nombramiento de Técnico de Telecomunicaciones para el servicio.&lt;/h3&gt;&lt;p&gt;CVE: &lt;tt&gt;BOC-A-2026-097-1671&lt;/p&gt;</description>
+      <pubDate>Thu, 21 May 2026 00:00:00 +0200</pubDate>
+      <guid isPermaLink="false">BOC-A-2026-097-1671</guid>
+    </item>
+
+    <!-- Fail 2: Non-target subsection in Section V (Otros anuncios instead of Administración Local) -->
+    <item>
+      <title>Anuncio de Consejería de Sanidad sobre bases de concurso.</title>
+      <link>https://www.gobiernodecanarias.org/boc/2026/097/005.html</link>
+      <description>&lt;h5&gt;V. Anuncios - Otros anuncios - Consejería de Sanidad&lt;/h5&gt;&lt;h3&gt;&lt;b&gt;1672&lt;/b&gt; Convocatoria de plazas de Informática Médica.&lt;/h3&gt;&lt;p&gt;CVE: &lt;tt&gt;BOC-A-2026-097-1672&lt;/p&gt;</description>
+      <pubDate>Thu, 21 May 2026 00:00:00 +0200</pubDate>
+      <guid isPermaLink="false">BOC-A-2026-097-1672</guid>
+    </item>
+
+    <!-- Fail 3: Section V -> Administración Local, but NO matching IT keyword (e.g. Geógrafo) -->
+    <item>
+      <title>Anuncio del Ayuntamiento de Arrecife relativo a bases de plaza.</title>
+      <link>https://www.gobiernodecanarias.org/boc/2026/097/006.html</link>
+      <description>&lt;h5&gt;V. Anuncios - Administración Local - Ayuntamiento de Arrecife&lt;/h5&gt;&lt;h3&gt;&lt;b&gt;1673&lt;/b&gt; Convocatoria para proveer una plaza de Geógrafo.&lt;/h3&gt;&lt;p&gt;CVE: &lt;tt&gt;BOC-A-2026-097-1673&lt;/p&gt;</description>
+      <pubDate>Thu, 21 May 2026 00:00:00 +0200</pubDate>
+      <guid isPermaLink="false">BOC-A-2026-097-1673</guid>
+    </item>
+
+    <!-- Fail 4: Section V -> Administración Local, IT keyword present but NO employment/contest anchor (Noise filter check) -->
+    <item>
+      <title>Anuncio del Ayuntamiento de Gáldar sobre actualización de red informática.</title>
+      <link>https://www.gobiernodecanarias.org/boc/2026/097/007.html</link>
+      <description>&lt;h5&gt;V. Anuncios - Administración Local - Ayuntamiento de Gáldar&lt;/h5&gt;&lt;h3&gt;&lt;b&gt;1674&lt;/b&gt; Anuncio sobre la licitación del suministro e instalación del sistema informático y de comunicaciones para la casa consistorial.&lt;/h3&gt;&lt;p&gt;CVE: &lt;tt&gt;BOC-A-2026-097-1674&lt;/p&gt;</description>
+      <pubDate>Thu, 21 May 2026 00:00:00 +0200</pubDate>
+      <guid isPermaLink="false">BOC-A-2026-097-1674</guid>
+    </item>
+  </channel>
+</rss>

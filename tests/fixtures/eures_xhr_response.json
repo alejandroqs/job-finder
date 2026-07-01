@@ -1,0 +1,20 @@
+{
+  "vacancies": [
+    {
+      "id": "eures-vac-1",
+      "vacancyTitle": "Software Developer (Full-Stack)",
+      "employerName": "EURES Recruiting Agency",
+      "description": "We are seeking a talented Software Developer (Full-Stack) with 3+ years experience.",
+      "applyUrl": "https://europa.eu/eures/apply-1",
+      "location": "Madrid, Spain"
+    },
+    {
+      "id": "eures-vac-2",
+      "vacancyTitle": "General Office Administrator",
+      "employerName": "Brussels Finance Agency",
+      "description": "General receptionist and file management duties.",
+      "applyUrl": "https://europa.eu/eures/apply-2",
+      "location": "Brussels, Belgium"
+    }
+  ]
+}

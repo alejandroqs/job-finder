@@ -1,0 +1,43 @@
+# BOP Las Palmas Job Monitor - Keyword Configuration
+# You can customize these regex patterns and anchor terms to refine the search.
+
+# IT-related keyword regex patterns (case-insensitive)
+it_keywords:
+  - "informátic[ao]s?"
+  - "sistemas?\\s+(?:y\\s+)?(?:redes|microinformátic|comunicaciones)"
+  - "telecomunicaciones?"
+  - "\\btic\\b"
+  - "ingenier[oa]\\s+(?:de\\s+)?(?:software|informátic[ao]|telecomunicac|sistemas)"
+  - "programador[a]?"
+  - "desarrollador[a]?"
+  - "ciberseguridad"
+  - "tecnolog[ií]as?\\s+(?:de\\s+la\\s+)?informaci[oó]n"
+  - "auxiliar\\s+t[eé]cnico\\s+inform[aá]tico"
+
+# Public contest / employment anchors (case-insensitive)
+# The text block must contain at least one of these to be flagged (prevents false positives)
+contest_anchors:
+  - "plaza"
+  - "convocatoria"
+  - "bases"
+  - "bolsa\\s+de\\s+empleo"
+  - "bolsa\\s+de\\s+trabajo"
+  - "oposici[oó]n"
+  - "personal\\s+laboral"
+  - "selecci[oó]n"
+  - "contrataci[oó]n"
+  - "bolsa\\s+de\\s+reserva"
+  - "bolsa\\s+extraordinaria"
+
+# Spanish administrative/boilerplate expressions that generate false positives
+# If these match in the text, their occurrences are temporarily ignored during IT keyword scanning.
+boilerplate_exclusions:
+  - "aplicaci[oó]n\\s+inform[aá]tica"
+  - "aplicaciones\\s+inform[aá]ticas"
+  - "medios\\s+inform[aá]ticos"
+  - "recursos\\s+inform[aá]ticos"
+  - "herramientas?\\s+inform[aá]ticas?"
+  - "plataformas?\\s+inform[aá]ticas?"
+  - "incidencias\\s+inform[aá]ticas?"
+  - "soportes?\\s+inform[aá]ticos?"
+

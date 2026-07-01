@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<response>
+  <status>
+    <code>200</code>
+    <text>ok</text>
+  </status>
+  <data>
+    <sumario>
+      <metadatos>
+        <publicacion>BOE</publicacion>
+        <fecha_publicacion>20260521</fecha_publicacion>
+      </metadatos>
+      <diario numero="124">
+        <sumario_diario>
+          <identificador>BOE-S-2026-124</identificador>
+          <url_pdf>https://www.boe.es/boe/dias/2026/05/21/pdfs/BOE-S-2026-124.pdf</url_pdf>
+        </sumario_diario>
+        
+        <!-- Target Section 2B -->
+        <seccion codigo="2B" nombre="II. Autoridades y personal. - B. Oposiciones y concursos">
+          
+          <departamento codigo="9585" nombre="MINISTERIO DE LA PRESIDENCIA, JUSTICIA Y RELACIONES CON LAS CORTES">
+            <epigrafe nombre="Personal funcionario. Oposiciones">
+              <!-- Item 1: IT match (Técnico de Informática) + anchor (convocatoria) -> Should MATCH -->
+              <item>
+                <identificador>BOE-A-2026-10901</identificador>
+                <titulo>Resolución de 12 de mayo de 2026, de la Subsecretaría, por la que se convoca la provisión de plaza de Técnico de Informática mediante convocatoria pública.</titulo>
+                <url_pdf>https://www.boe.es/boe/dias/2026/05/21/pdfs/BOE-A-2026-10901.pdf</url_pdf>
+                <url_html>https://www.boe.es/diario_boe/txt.php?id=BOE-A-2026-10901</url_html>
+              </item>
+              
+              <!-- Item 2: No IT match (Abogados Fiscales) -> Should be FILTERED OUT -->
+              <item>
+                <identificador>BOE-A-2026-10902</identificador>
+                <titulo>Orden PJC/495/2026, de 19 de mayo, por la que se convocan plazas de Abogadas y Abogados Fiscales.</titulo>
+                <url_html>https://www.boe.es/diario_boe/txt.php?id=BOE-A-2026-10902</url_html>
+              </item>
+            </epigrafe>
+          </departamento>
+          
+          <departamento codigo="9525" nombre="ADMINISTRACIÓN LOCAL">
+            <epigrafe nombre="Personal funcionario. Oposiciones">
+              <!-- Item 3: IT match (Programador de Sistemas) + anchor (bases) -> Should MATCH -->
+              <item>
+                <identificador>BOE-A-2026-10903</identificador>
+                <titulo>Resolución del Ayuntamiento de Las Palmas de Gran Canaria referente a las bases para la provisión de una plaza de Programador de Sistemas de Redes.</titulo>
+                <url_html>https://www.boe.es/diario_boe/txt.php?id=BOE-A-2026-10903</url_html>
+              </item>
+            </epigrafe>
+          </departamento>
+          
+          <departamento codigo="9555" nombre="UNIVERSIDAD DE LAS PALMAS DE GRAN CANARIA">
+            <epigrafe nombre="Personal de administración y servicios">
+              <!-- Item 4: IT match (Ingeniero Informático) + anchor (bolsa de empleo) -> Should MATCH -->
+              <item>
+                <identificador>BOE-A-2026-10904</identificador>
+                <titulo>Resolución por la que se convoca bolsa de empleo de Ingeniero Informático de Sistemas.</titulo>
+                <url_html>https://www.boe.es/diario_boe/txt.php?id=BOE-A-2026-10904</url_html>
+              </item>
+              
+              <!-- Item 5: IT word but NO anchor (suministro de licencias de software) -> Should be FILTERED OUT -->
+              <item>
+                <identificador>BOE-A-2026-10905</identificador>
+                <titulo>Anuncio de licitación para la adquisición y suministro de licencias de software y equipos de telecomunicaciones para el campus virtual.</titulo>
+                <url_html>https://www.boe.es/diario_boe/txt.php?id=BOE-A-2026-10905</url_html>
+              </item>
+            </epigrafe>
+          </departamento>
+          
+        </seccion>
+        
+        <!-- Other Section: Ensure parser does not scan items from other sections -->
+        <seccion codigo="3" nombre="III. Otras disposiciones">
+          <departamento codigo="9525" nombre="ADMINISTRACIÓN LOCAL">
+            <item>
+              <identificador>BOE-A-2026-10906</identificador>
+              <titulo>Resolución por la que se publican las bases de la plaza de Ingeniero Técnico de Telecomunicaciones.</titulo>
+              <url_html>https://www.boe.es/diario_boe/txt.php?id=BOE-A-2026-10906</url_html>
+            </item>
+          </departamento>
+        </seccion>
+        
+      </diario>
+    </sumario>
+  </data>
+</response>

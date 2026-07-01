@@ -1,0 +1,26 @@
+{
+  "id": "job-opportunities",
+  "title": {
+    "en": "Job opportunities"
+  },
+  "distributions": [
+    {
+      "id": "distribution-1",
+      "format": {
+        "id": "xml"
+      },
+      "download_url": [
+        "https://data.europa.eu/xml-opportunities"
+      ]
+    },
+    {
+      "id": "distribution-2",
+      "format": {
+        "id": "csv"
+      },
+      "download_url": [
+        "https://data.europa.eu/csv-opportunities"
+      ]
+    }
+  ]
+}

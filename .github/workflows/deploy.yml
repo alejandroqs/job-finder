@@ -1,0 +1,77 @@
+name: Production Deployment Pipeline
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'requirements.txt'
+      - '.github/workflows/deploy.yml'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  compile-and-ship:
+    name: Containerized Linux x86_64 Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Repository
+        uses: actions/checkout@v4
+
+      # Connect dynamically to AWS via OIDC tokens
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          audience: sts.amazonaws.com
+
+      - name: Cache Pip Dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      # Build inside the Python 3.14 AWS SAM replica to enforce binary OS parity
+      - name: Build Lambda Package inside SAM Container
+        run: |
+          mkdir -p dist_lambda/package
+          docker run --rm -v "${{ github.workspace }}:/app" public.ecr.aws/sam/build-python3.14 bash -c "
+            dnf install -y libffi-devel &&
+            pip install --target /app/dist_lambda/package -r /app/requirements.txt &&
+            cp -r /app/src/job_finder /app/dist_lambda/package/ &&
+            cd /app/dist_lambda/package &&
+            zip -q -r /app/dist_lambda/lambda_function.zip .
+          "
+
+      - name: Sync Archive to AWS S3
+        run: |
+          aws s3 cp dist_lambda/lambda_function.zip s3://job-finder-bucket-muk04-2026/lambda_function.zip
+
+      - name: Update AWS Lambda Runtime Code Space
+        run: |
+          aws lambda update-function-code \
+            --function-name job-finder-bot \
+            --s3-bucket job-finder-bucket-muk04-2026 \
+            --s3-key lambda_function.zip
+
+      - name: Wait for AWS Lambda Stabilization
+        run: |
+          echo "Waiting for Lambda update to transition to Successful state..."
+          aws lambda wait function-updated --function-name job-finder-bot
+
+      - name: Invoke Production Verification Test
+        run: |
+          aws lambda invoke \
+            --function-name job-finder-bot \
+            --payload '{"sources": ["ALL"], "no_ai": false}' \
+            --cli-binary-format raw-in-base64-out \
+            --cli-read-timeout 300 \
+            response.json
+          cat response.json

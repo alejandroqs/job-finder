@@ -72,7 +72,7 @@ graph TD
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/yourusername/job-finder.git
+   git clone https://github.com/alejandroqs/job-finder.git
    cd job-finder
    ```
 

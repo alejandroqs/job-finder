@@ -3,6 +3,8 @@ import datetime
 import io
 import sys
 import textwrap
+import os
+import tempfile
 from pathlib import Path
 from typing import List, Optional
 
@@ -34,6 +36,14 @@ from job_finder.eulisa_parser import EULISAParser
 from job_finder.keyword_filter import KeywordFilter
 from job_finder.interfaces import ParsedAnnouncement, BOPage
 from job_finder.notifier import send_notifications
+
+
+def get_temp_path(filename: str) -> Path:
+    """Dynamically resolves a valid temporary file path for both AWS Lambda and local environments."""
+    base_dir = "/tmp" if os.environ.get("AWS_LAMBDA_FUNCTION_NAME") else tempfile.gettempdir()
+    return Path(base_dir) / filename
+        
+    return os.path.join(base_dir, filename)
 
 
 def parse_date(date_str: str) -> datetime.date:
@@ -262,7 +272,7 @@ def run_scan(
                 print(f"📅 Target Date: {resolved_date.strftime('%Y-%m-%d')} (BOP format: {resolved_date.day}-{resolved_date.month}-{resolved_date.year % 100})")
                 fetcher = BOPFetcher()
                 bop_parser = BOPParser()
-                tmp_pdf_path = Path("/tmp/bop_bulletin.pdf")
+                tmp_pdf_path = get_temp_path("bop_bulletin.pdf")
                 
                 try:
                     print("🌐 Connecting to www.boplaspalmas.net...")

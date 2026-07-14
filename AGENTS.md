@@ -228,6 +228,30 @@ To successfully operate under the Google AI Studio free tier limits:
 * **BOP PDF In-Memory Avoidance**: When downloading BOP gazettes online, the system bypasses direct in-memory PDF parsing to protect the Lambda container from memory allocation spikes and OOM exceptions.
 * **Disk Buffering Flow**: The downloaded `BytesIO` buffer is dumped to `/tmp/bop_bulletin.pdf` on the container's ephemeral storage first. The parser reads from the disk buffer, which is immediately deleted via `try...finally` block (using `Path.unlink(missing_ok=True)`) to ensure the filesystem is cleaned up even if parsing exceptions are raised.
 
+## 🗺️ Domain Insights: Aena Employment Portal
+
+### 1. Java/SAP SSR Architecture & Self-Authenticating URLs
+* The Aena employment portal is a legacy Java/SAP SSR web application which lists active job opportunities.
+* It does not provide an API endpoint. Active announcements must be scraped from the list page via BeautifulSoup DOM parsing.
+* Aena uses self-authenticating SAP Content Server URLs for PDF documents (`secKey`, `authId`, and expiration parameters) which bypass cookie/session tracking entirely. Thus, standard stateless `requests.get` requests with browser headers are sufficient to download bases PDFs.
+
+### 2. Accent-Insensitive Date Matching & Robust Date boundary
+* Spanish date strings contain accented characters (e.g. `Fecha fin inscripción:`). Due to potential encoding differences (e.g., ISO-8859-1 vs. UTF-8), parsing should use accent-insensitive, robust matching (e.g. searching for `"Fecha fin"` instead of the exact accented string) to prevent parsing failures.
+* The date boundary filter is applied at the open-window level: if `target_date <= closing_date`, the job is kept.
+
+### 3. Collision-free Ephemeral PDF Buffer
+* To process jobs concurrently via `ThreadPoolExecutor` while respecting Lambda's read-only file system, downloaded PDFs must be stored to unique files in `/tmp` using the `get_temp_path(f"aena_temp_{uuid}.pdf")` pattern and deleted immediately in a `finally` block using `Path.unlink(missing_ok=True)`.
+
+### 4. Multi-Document Deep-Scanning & 503 Error Resilience
+* **Comprehensive Ingestion**: Instead of stopping at the first `Bases` document, the scraper extracts and parses *all* self-authenticating SAP Content Server PDFs found on a job's detail page. This guarantees that any IT keywords or deadline extensions mentioned in addendums/resolutions are successfully ingested.
+* **Granular 503 Failsafes**: The Aena website frequently throws `503 Service Unavailable` errors. The `ThreadPoolExecutor` is protected by bulletproof nested exception handling:
+  * If an individual PDF fails to download (503), the thread logs a warning, cleans up the temp file, and continues downloading the next PDF for that job.
+  * If the detail page fails entirely, the outer `try...except` catches the error, generates a fallback `BOPage` (containing just the title and the list-level closing date), and returns it. This ensures the thread never crashes, and the scanner proceeds seamlessly to the next job.
+
+### 5. Dynamic Console Buffering for Single vs. Multi Scans
+* `ThreadLocalStream` is used to capture background thread `print()` statements and prevent overlapping text during parallel multi-source runs.
+* **Single-Source Unbuffering**: When a single source is run (e.g. `--source AENA`), the `ThreadLocalStream` wrapper is bypassed in `main.py`. This ensures long-running tasks like AENA's 100+ PDF downloads can stream real-time progress (`⏳ Deep-scanning Aena job...`) directly to the console so the user knows the application is not frozen.
+
 ---
 
 ## 🏗️ Strict Deployment Architecture & Constraints

@@ -4,7 +4,7 @@
 [![Testing](https://img.shields.io/badge/tests-24%20passed-green.svg)](https://pytest.org/)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 
-An enterprise-grade, clean-architecture command-line tool that monitors the **Official Gazette of the Province of Las Palmas (BOP Las Palmas)**, the **Official Gazette of the Canary Islands (BOC)**, and the **Official Gazette of the Spanish State (BOE)** to automatically identify and extract civil service job openings in the Information Technology and Software Engineering sectors across the entire Spanish territory.
+An enterprise-grade, clean-architecture command-line tool that monitors the **Official Gazette of the Province of Las Palmas (BOP Las Palmas)**, the **Official Gazette of the Canary Islands (BOC)**, the **Official Gazette of the Spanish State (BOE)**, and the **Aena Employment Portal** to automatically identify and extract civil service job openings in the Information Technology and Software Engineering sectors across the entire Spanish territory.
 
 Because official gazettes publish raw, unstructured daily gazettes (monolithic PDF files for BOP, HTML/RSS structures for BOC, and custom Open Data API XML streams for BOE) without clean public APIs, this tool implements a custom high-performance streaming, parsing, and Natural Language Processing (NLP) regex pipeline to isolate and report high-value career opportunities.
 
@@ -21,9 +21,11 @@ graph TD
     CLI[main.py CLI Orchestrator] --> BOPFetcher[BOPFetcher]
     CLI --> BOCFetcher[BOCFetcher]
     CLI --> BOEFetcher[BOEFetcher]
+    CLI --> AenaFetcher[AenaFetcher]
     CLI --> BOPParser[BOPParser]
     CLI --> BOCParser[BOCParser]
     CLI --> BOEParser[BOEParser]
+    CLI --> AenaParser[AenaParser]
     CLI --> Filter[KeywordFilter]
     
     subgraph Core Domain Interfaces
@@ -34,9 +36,11 @@ graph TD
     BOPFetcher -- Implements --> IFetcher
     BOCFetcher -- Implements --> IFetcher
     BOEFetcher -- Implements --> IFetcher
+    AenaFetcher -- Implements --> IFetcher
     BOPParser -- Implements --> IParser
     BOCParser -- Implements --> IParser
     BOEParser -- Implements --> IParser
+    AenaParser -- Implements --> IParser
     
     subgraph Utility Layers
         Cleaner[TextCleaner Pipeline]
@@ -45,12 +49,14 @@ graph TD
     BOPParser --> Cleaner
     BOCParser --> Cleaner
     BOEParser --> Cleaner
+    AenaParser --> Cleaner
     Filter --> Cleaner
 ```
 
 ### Key Software Engineering Design Patterns
 * **Dependency Inversion**: High-level orchestrators interface exclusively with abstract classes (`BaseFetcher`, `BaseParser`), facilitating seamless transitions to alternative engines without modifying core orchestration logic.
-* **Parallel Source Fetching**: Utilizes `ThreadPoolExecutor` in the main orchestrator to scan all configured sources concurrently, drastically reducing overall execution time. Ensures console stability via a custom atomic `ThreadLocalStream` buffer to prevent interleaved logs.
+* **Parallel Source Fetching & Dynamic Buffering**: Utilizes `ThreadPoolExecutor` in the main orchestrator to scan all configured sources concurrently, drastically reducing overall execution time. Ensures console stability via a custom atomic `ThreadLocalStream` buffer to prevent interleaved logs. When running a single source (e.g. Aena), the buffer is dynamically bypassed to stream real-time progress to the terminal.
+* **Deep Multi-Document Ingestion & Resilience**: Legacy SSR web apps (like Aena) often hide IT job roles or deadline extensions deep inside scattered supplementary PDF annexes. The scraper downloads and processes all linked documents concurrently, wrapping them in granular exception handlers. This ensures a single 503 Server Error on a broken PDF never crashes the thread; it simply falls back to keyword-scanning the job title and safely continues.
 * **Batched AI Validation**: Employs parallel chunking (batches of 10) to validate job candidates via Gemini Flash 3.5. This drastically cuts API latency and network round-trips while managing rate limits via exponential backoff (429/503 HTTP codes) and enforcing deterministic JSON structured outputs.
 * **Symmetric Merging & Date Filtering**: The BOC integration merges multiple RSS feeds concurrently and applies precise target-date filtering in the fetch phase, converting unstructured feed items into clean in-memory XML buffers.
 * **Stateful Stream Processing (Sticky Headers)**: BOP gazettes contain unstructured, multi-page layout flows. The PDF parser utilizes a stateful sticky-header pattern to associate announcements with their respective municipal departments ("organisms") across page breaks.

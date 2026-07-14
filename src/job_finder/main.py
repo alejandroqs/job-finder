@@ -24,6 +24,10 @@ from job_finder.boe_parser import BOEParser
 from job_finder.sagulpa_fetcher import SagulpaFetcher
 from job_finder.sagulpa_parser import SagulpaParser
 
+# Aena Components
+from job_finder.aena_fetcher import AenaFetcher
+from job_finder.aena_parser import AenaParser
+
 # EU Components
 from job_finder.epso_fetcher import EPSOFetcher
 from job_finder.epso_parser import EPSOParser
@@ -160,6 +164,8 @@ def _scan_single_source(
     """Scrapes and scans a single source, capturing all console output to a buffer."""
     import io
     buffer = io.StringIO()
+    
+    # Only set local stream if the proxy is actually active
     if hasattr(sys.stdout, "local"):
         sys.stdout.local.stream = buffer
     if hasattr(sys.stderr, "local"):
@@ -292,6 +298,19 @@ def _scan_single_source(
             except Exception as e:
                 print(f"❌ Sagulpa download/parse failed: {e}", file=sys.stderr)
         
+        elif src == "AENA":
+            print(f"📅 Target Date: {resolved_date.strftime('%Y-%m-%d') if (target_date or is_lambda) else 'ALL ACTIVE OPENINGS'}")
+            fetcher = AenaFetcher()
+            aena_parser = AenaParser(fetcher=fetcher)
+            
+            try:
+                print("🌐 Connecting to Aena Employment Portal...")
+                list_stream = fetcher.fetch(resolved_date)
+                print("📥 Download complete! Parsing HTML and deep-scanning active details...")
+                pages = aena_parser.parse(list_stream, target_date=resolved_date if is_lambda else target_date)
+            except Exception as e:
+                print(f"❌ Aena download/parse failed: {e}", file=sys.stderr)
+        
         elif src == "EPSO":
             print(f"📅 Target Date: {resolved_date.strftime('%Y-%m-%d') if (target_date or is_lambda) else 'ALL ACTIVE OPENINGS'}")
             fetcher = EPSOFetcher()
@@ -372,12 +391,6 @@ def run_scan(
     Core execution logic for scanning.
     Extracts IT job announcements from designated Spanish & European bulletins.
     """
-    # Ensure stdout/stderr are wrapped in ThreadLocalStream for parallel thread buffering
-    if not isinstance(sys.stdout, ThreadLocalStream):
-        sys.stdout = ThreadLocalStream(sys.stdout)
-    if not isinstance(sys.stderr, ThreadLocalStream):
-        sys.stderr = ThreadLocalStream(sys.stderr)
-
     # Initialize keyword filter
     try:
         kf = KeywordFilter(config_path=config_path)
@@ -411,15 +424,19 @@ def run_scan(
             except Exception:
                 source_type = "BOC"
         elif suffix in (".html", ".htm"):
-            # Distinguish between SAGULPA and EULISA
+            # Distinguish between SAGULPA, EULISA, and AENA
             if "eulisa" in local_file.name.lower():
                 source_type = "EULISA"
+            elif "aena" in local_file.name.lower():
+                source_type = "AENA"
             else:
                 try:
                     with open(local_file, "r", encoding="utf-8", errors="replace") as f:
                         head = f.read(2000)
                     if "eulisa" in head.lower():
                         source_type = "EULISA"
+                    elif "aena" in head.lower():
+                        source_type = "AENA"
                     else:
                         source_type = "SAGULPA"
                 except Exception:
@@ -445,6 +462,8 @@ def run_scan(
                 elif sig.startswith(b"<!DO") or sig.startswith(b"<htm") or b"<html" in sig.lower():
                     if "eulisa" in local_file.name.lower():
                         source_type = "EULISA"
+                    elif "aena" in local_file.name.lower():
+                        source_type = "AENA"
                     else:
                         source_type = "SAGULPA"
                 elif sig.startswith(b"{") or sig.startswith(b"["):
@@ -470,6 +489,8 @@ def run_scan(
                 parser_inst = BOEParser()
             elif source_type == "SAGULPA":
                 parser_inst = SagulpaParser()
+            elif source_type == "AENA":
+                parser_inst = AenaParser()
             elif source_type == "EPSO":
                 parser_inst = EPSOParser()
             elif source_type == "EURES":
@@ -495,14 +516,21 @@ def run_scan(
         
         # Decide which sources to run
         if not sources or "ALL" in sources:
-            sources_to_run = ["BOP", "BOC", "BOE", "SAGULPA", "EPSO", "EURES", "EULISA"]
+            sources_to_run = ["BOP", "BOC", "BOE", "SAGULPA", "AENA", "EPSO", "EURES", "EULISA"]
         elif "EU" in sources:
             sources_to_run = ["EPSO", "EURES", "EULISA"]
         elif "ES" in sources:
-            sources_to_run = ["BOP", "BOC", "BOE", "SAGULPA"]
+            sources_to_run = ["BOP", "BOC", "BOE", "SAGULPA", "AENA"]
         else:
             sources_to_run = sources
         
+        # Ensure stdout/stderr are wrapped in ThreadLocalStream for parallel thread buffering if running multiple
+        if len(sources_to_run) > 1:
+            if not isinstance(sys.stdout, ThreadLocalStream):
+                sys.stdout = ThreadLocalStream(sys.stdout)
+            if not isinstance(sys.stderr, ThreadLocalStream):
+                sys.stderr = ThreadLocalStream(sys.stderr)
+                
         # Run sources concurrently
         from concurrent.futures import ThreadPoolExecutor
         results_by_source = {}
@@ -517,8 +545,11 @@ def run_scan(
                 kf=kf
             )
 
-        with ThreadPoolExecutor(max_workers=len(sources_to_run)) as executor:
-            list(executor.map(run_thread, sources_to_run))
+        if len(sources_to_run) > 1:
+            with ThreadPoolExecutor(max_workers=len(sources_to_run)) as executor:
+                list(executor.map(run_thread, sources_to_run))
+        else:
+            run_thread(sources_to_run[0])
 
         # Print all buffered outputs sequentially and collect announcements
         for src in sources_to_run:
@@ -612,7 +643,7 @@ def main() -> None:
     parser.add_argument(
         "--source",
         "-s",
-        choices=["BOP", "BOC", "BOE", "SAGULPA", "EPSO", "EURES", "EULISA", "EU", "ES", "ALL"],
+        choices=["BOP", "BOC", "BOE", "SAGULPA", "AENA", "EPSO", "EURES", "EULISA", "EU", "ES", "ALL"],
         default="ALL",
         help="Target official gazette source(s) to scan (use 'EU' for European Union, 'ES' for Spanish, or individual source names)"
     )

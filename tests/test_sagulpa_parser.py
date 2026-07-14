@@ -49,11 +49,11 @@ def test_sagulpa_parser_list_extraction(sagulpa_list_html_path):
 
     # In our sagulpa_ofertas_empleo.html fixture:
     # Total jobs listed: 30
-    # Active jobs expected: exactly 1 (BOLSA DE EMPLEO DE OPERARI@ DE BICICLETAS)
-    # The other 29 are closed or suspended (e.g. Proceso cerrado, Cerrado el plazo..., Proceso suspendido)
-    assert len(active_jobs) == 1
+    # Active jobs expected: exactly 3 (new processes added to fixture)
+    # The others are closed or suspended (e.g. Proceso cerrado, Cerrado el plazo..., Proceso suspendido)
+    assert len(active_jobs) == 3
 
-    job = active_jobs[0]
+    job = active_jobs[2]
     assert job["title"] == "BOLSA DE EMPLEO DE OPERARI@ DE BICICLETAS"
     assert job["url"] == "https://www.sagulpa.com/ofertas-empleo/bolsa-de-empleo-de-operari%40-de-bicicletas_6"
     assert isinstance(job["date"], datetime.date)
@@ -135,14 +135,14 @@ def test_sagulpa_fetcher_list_and_detail_mock(sagulpa_list_html_path, sagulpa_de
     # In online mode (fetcher present), parsing the list stream runs the Two-Tier check
     pages = parser.parse(io.BytesIO(list_html.encode("utf-8")))
 
-    # Verify that we fetched the detail page for the 1 active job
-    assert len(fetcher.detail_calls) == 1
-    assert "bolsa-de-empleo-de-operari" in fetcher.detail_calls[0]
-
+    # Verify that we fetched the detail page for the active jobs
+    assert len(fetcher.detail_calls) == 3
+    assert any("bolsa-de-empleo-de-operari" in call for call in fetcher.detail_calls)
+ 
     # Verify that a BOPage was generated containing the detail page text
-    assert len(pages) == 1
-    bo_page = pages[0]
-    assert bo_page.page_number == 1
+    assert len(pages) == 3
+    bo_page = pages[2]
+    assert bo_page.page_number == 3
     assert bo_page.source == "SAGULPA"
     assert bo_page.detected_organism == "SAGULPA"
     assert bo_page.section == "Ofertas de Empleo"

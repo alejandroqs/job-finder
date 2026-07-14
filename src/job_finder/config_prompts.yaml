@@ -34,11 +34,11 @@ system_prompt: |
 
 user_prompt_template: |
   <context>
-  {extracted_text}
+  {jobs_json}
   </context>
 
   <task>
-  Based on the information above, analyze the text and extract the requested
-  data into the JSON schema. Determine if it is a valid tech job offer
-  (is_tech_job = true/false).
+  Based on the JSON list of jobs provided above, analyze each job and extract the validation verdict into the JSON schema.
+  For each job, match the "id" exactly. Determine if it is a valid tech job offer.
   </task>
+

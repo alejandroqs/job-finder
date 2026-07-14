@@ -36,14 +36,36 @@ from job_finder.eulisa_parser import EULISAParser
 from job_finder.keyword_filter import KeywordFilter
 from job_finder.interfaces import ParsedAnnouncement, BOPage
 from job_finder.notifier import send_notifications
+import threading
+
+class ThreadLocalStream:
+    def __init__(self, default_stream):
+        self.default_stream = default_stream
+        self.local = threading.local()
+
+    def write(self, data):
+        stream = getattr(self.local, "stream", None)
+        if stream is not None:
+            stream.write(data)
+        else:
+            self.default_stream.write(data)
+
+    def flush(self):
+        stream = getattr(self.local, "stream", None)
+        if stream is not None:
+            stream.flush()
+        else:
+            self.default_stream.flush()
+
+    def __getattr__(self, name):
+        return getattr(self.default_stream, name)
 
 
 def get_temp_path(filename: str) -> Path:
     """Dynamically resolves a valid temporary file path for both AWS Lambda and local environments."""
     base_dir = "/tmp" if os.environ.get("AWS_LAMBDA_FUNCTION_NAME") else tempfile.gettempdir()
     return Path(base_dir) / filename
-        
-    return os.path.join(base_dir, filename)
+
 
 
 def parse_date(date_str: str) -> datetime.date:
@@ -127,6 +149,217 @@ def print_source_header(source_name: str) -> None:
     print("╚" + "═" * 58 + "╝")
 
 
+def _scan_single_source(
+    src: str,
+    resolved_date: datetime.date,
+    target_date: Optional[datetime.date],
+    is_default_date: bool,
+    is_lambda: bool,
+    kf: KeywordFilter
+) -> tuple[List[ParsedAnnouncement], str]:
+    """Scrapes and scans a single source, capturing all console output to a buffer."""
+    import io
+    buffer = io.StringIO()
+    if hasattr(sys.stdout, "local"):
+        sys.stdout.local.stream = buffer
+    if hasattr(sys.stderr, "local"):
+        sys.stderr.local.stream = buffer
+
+    try:
+        print_source_header(src)
+        pages: List[BOPage] = []
+        
+        if src == "BOP":
+            print(f"📅 Target Date: {resolved_date.strftime('%Y-%m-%d')} (BOP format: {resolved_date.day}-{resolved_date.month}-{resolved_date.year % 100})")
+            fetcher = BOPFetcher()
+            bop_parser = BOPParser()
+            tmp_pdf_path = get_temp_path("bop_bulletin.pdf")
+            
+            try:
+                print("🌐 Connecting to www.boplaspalmas.net...")
+                pdf_stream = fetcher.fetch(resolved_date)
+                print("📥 Download complete! Offloading to disk buffer...")
+                tmp_pdf_path.write_bytes(pdf_stream.getvalue())
+                print("🔎 Parsing PDF from ephemeral storage...")
+                pages = bop_parser.parse(tmp_pdf_path)
+            except BOPNotPublishedError as e:
+                if is_default_date:
+                    print(f"⚠️  No BOP bulletin found for today ({resolved_date.strftime('%Y-%m-%d')}).")
+                    print("🔄 Falling back to the latest available bulletin on the website...")
+                    try:
+                        pdf_stream, latest_date = fetcher.fetch_latest()
+                        if is_lambda and latest_date < resolved_date:
+                            print(f"⚠️  Lambda Mode: Skipping fallback bulletin dated {latest_date.strftime('%Y-%m-%d')} to avoid duplicate notifications.")
+                        else:
+                            print(f"📥 Found and downloaded latest BOP bulletin from: {latest_date.strftime('%Y-%m-%d')}")
+                            tmp_pdf_path.write_bytes(pdf_stream.getvalue())
+                            pages = bop_parser.parse(tmp_pdf_path)
+                    except Exception as fallback_err:
+                        print(f"❌ BOP fallback failed: {fallback_err}", file=sys.stderr)
+                    finally:
+                        if tmp_pdf_path.exists():
+                            tmp_pdf_path.unlink(missing_ok=True)
+                else:
+                    print(f"⚠️  {e}")
+            except BOPFetchError as e:
+                print(f"❌ BOP download failed: {e}", file=sys.stderr)
+            except Exception as e:
+                print(f"❌ Unexpected BOP error: {e}", file=sys.stderr)
+            finally:
+                if tmp_pdf_path.exists():
+                    tmp_pdf_path.unlink(missing_ok=True)
+                
+        elif src == "BOC":
+            print(f"📅 Target Date: {resolved_date.strftime('%Y-%m-%d')}")
+            fetcher = BOCFetcher()
+            boc_parser = BOCParser()
+            
+            try:
+                print("🌐 Connecting to www.gobiernodecanarias.org RSS feeds...")
+                xml_stream = fetcher.fetch(resolved_date)
+                pages = boc_parser.parse(xml_stream)
+                
+                if not pages and is_default_date:
+                    print(f"⚠️  No BOC announcements found for today ({resolved_date.strftime('%Y-%m-%d')}).")
+                    print("🔄 Falling back to the latest date present in the RSS feed...")
+                    try:
+                        xml_stream, latest_date = fetcher.fetch_latest()
+                        if is_lambda and latest_date < resolved_date:
+                            print(f"⚠️  Lambda Mode: Skipping fallback announcements dated {latest_date.strftime('%Y-%m-%d')} to avoid duplicate notifications.")
+                        else:
+                            print(f"📥 Found and downloaded latest BOC announcements from: {latest_date.strftime('%Y-%m-%d')}")
+                            pages = boc_parser.parse(xml_stream)
+                    except Exception as fallback_err:
+                        print(f"❌ BOC fallback failed: {fallback_err}", file=sys.stderr)
+            except BOCFetchError as e:
+                print(f"❌ BOC download failed: {e}", file=sys.stderr)
+            except Exception as e:
+                print(f"❌ Unexpected BOC error: {e}", file=sys.stderr)
+
+        elif src == "BOE":
+            print(f"📅 Target Date: {resolved_date.strftime('%Y-%m-%d')}")
+            fetcher = BOEFetcher()
+            boe_parser = BOEParser(pdf_fetcher=fetcher)
+            
+            try:
+                print("🌐 Connecting to www.boe.es Open Data API...")
+                xml_stream = fetcher.fetch(resolved_date)
+                print("📥 Download complete! Parsing XML in memory...")
+                pages = boe_parser.parse(xml_stream)
+                
+                if not pages and is_default_date:
+                    print(f"⚠️  No BOE announcements found for today ({resolved_date.strftime('%Y-%m-%d')}).")
+                    print("🔄 Falling back to the latest available bulletin...")
+                    try:
+                        xml_stream, latest_date = fetcher.fetch_latest()
+                        if is_lambda and latest_date < resolved_date:
+                            print(f"⚠️  Lambda Mode: Skipping fallback announcements dated {latest_date.strftime('%Y-%m-%d')} to avoid duplicate notifications.")
+                        else:
+                            print(f"📥 Found and downloaded latest BOE bulletin from: {latest_date.strftime('%Y-%m-%d')}")
+                            pages = boe_parser.parse(xml_stream)
+                    except Exception as fallback_err:
+                        print(f"❌ BOE fallback failed: {fallback_err}", file=sys.stderr)
+            except BOENotPublishedError as e:
+                if is_default_date:
+                    print(f"⚠️  No BOE bulletin found for today ({resolved_date.strftime('%Y-%m-%d')}).")
+                    print("🔄 Falling back to the latest available bulletin...")
+                    try:
+                        xml_stream, latest_date = fetcher.fetch_latest()
+                        if is_lambda and latest_date < resolved_date:
+                            print(f"⚠️  Lambda Mode: Skipping fallback announcements dated {latest_date.strftime('%Y-%m-%d')} to avoid duplicate notifications.")
+                        else:
+                            print(f"📥 Found and downloaded latest BOE bulletin from: {latest_date.strftime('%Y-%m-%d')}")
+                            pages = boe_parser.parse(xml_stream)
+                    except Exception as fallback_err:
+                        print(f"❌ BOE fallback failed: {fallback_err}", file=sys.stderr)
+                else:
+                    print(f"⚠️  {e}")
+            except BOEFetchError as e:
+                print(f"❌ BOE download failed: {e}", file=sys.stderr)
+            except Exception as e:
+                print(f"❌ Unexpected BOE error: {e}", file=sys.stderr)
+        
+        elif src == "SAGULPA":
+            print(f"📅 Target Date: {resolved_date.strftime('%Y-%m-%d') if (target_date or is_lambda) else 'ALL ACTIVE OPENINGS'}")
+            fetcher = SagulpaFetcher()
+            sagulpa_parser = SagulpaParser(fetcher=fetcher)
+            
+            try:
+                print("🌐 Connecting to www.sagulpa.com job board...")
+                list_stream = fetcher.fetch(resolved_date)
+                print("📥 Download complete! Parsing HTML and deep-scanning active details...")
+                pages = sagulpa_parser.parse(list_stream, target_date=resolved_date if is_lambda else target_date)
+            except Exception as e:
+                print(f"❌ Sagulpa download/parse failed: {e}", file=sys.stderr)
+        
+        elif src == "EPSO":
+            print(f"📅 Target Date: {resolved_date.strftime('%Y-%m-%d') if (target_date or is_lambda) else 'ALL ACTIVE OPENINGS'}")
+            fetcher = EPSOFetcher()
+            epso_parser = EPSOParser()
+            
+            try:
+                print("🌐 Connecting to EU Open Data CKAN API...")
+                raw_data = fetcher.fetch_raw()
+                print("📥 Download complete! Parsing CSV...")
+                pages = epso_parser.parse_raw(raw_data, target_date=resolved_date if is_lambda else target_date)
+            except Exception as e:
+                print(f"❌ EPSO download/parse failed: {e}", file=sys.stderr)
+                
+        elif src == "EURES":
+            print(f"📅 Target Date: {resolved_date.strftime('%Y-%m-%d') if (target_date or is_lambda) else 'ALL ACTIVE OPENINGS'}")
+            fetcher = EURESFetcher()
+            eures_parser = EURESParser()
+            
+            try:
+                raw_data = fetcher.fetch_raw()
+                if raw_data:
+                    print("📥 Download complete! Parsing JSON...")
+                    pages = eures_parser.parse_raw(raw_data, target_date=resolved_date if is_lambda else target_date)
+                else:
+                    print("⚠️ Skipping EURES scanning due to live fetch bypass/failure.")
+            except Exception as e:
+                print(f"❌ EURES download/parse failed: {e}", file=sys.stderr)
+                
+        elif src == "EULISA":
+            print(f"📅 Target Date: {resolved_date.strftime('%Y-%m-%d') if (target_date or is_lambda) else 'ALL ACTIVE OPENINGS'}")
+            fetcher = EULISAFetcher()
+            eulisa_parser = EULISAParser()
+            
+            try:
+                print("🌐 Connecting to eu-LISA Careers Portal...")
+                raw_data = fetcher.fetch_raw()
+                print("📥 Download complete! Parsing HTML...")
+                pages = eulisa_parser.parse_raw(raw_data, target_date=resolved_date if is_lambda else target_date)
+            except Exception as e:
+                print(f"❌ eu-LISA download/parse failed: {e}", file=sys.stderr)
+
+        # Scan the pages/items for this source
+        src_announcements = []
+        if pages:
+            print(f"🔎 Scanning {len(pages)} pages/entries in this bulletin...")
+            for page in pages:
+                src_announcements.extend(kf.search_page(page))
+            
+            if src_announcements:
+                print(f"🎉 Success: Found {len(src_announcements)} matching announcement(s)!")
+            else:
+                print("ℹ️  No matching IT jobs found in this source for this date.")
+        else:
+            print("ℹ️  No target pages were fetched or parsed for this source.")
+
+        return src_announcements, buffer.getvalue()
+
+    except Exception as e:
+        print(f"❌ Critical thread error scanning source {src}: {e}", file=sys.stderr)
+        return [], buffer.getvalue()
+
+    finally:
+        if hasattr(sys.stdout, "local"):
+            sys.stdout.local.stream = None
+        if hasattr(sys.stderr, "local"):
+            sys.stderr.local.stream = None
+
+
 def run_scan(
     target_date: Optional[datetime.date] = None,
     sources: Optional[List[str]] = None,
@@ -139,6 +372,12 @@ def run_scan(
     Core execution logic for scanning.
     Extracts IT job announcements from designated Spanish & European bulletins.
     """
+    # Ensure stdout/stderr are wrapped in ThreadLocalStream for parallel thread buffering
+    if not isinstance(sys.stdout, ThreadLocalStream):
+        sys.stdout = ThreadLocalStream(sys.stdout)
+    if not isinstance(sys.stderr, ThreadLocalStream):
+        sys.stderr = ThreadLocalStream(sys.stderr)
+
     # Initialize keyword filter
     try:
         kf = KeywordFilter(config_path=config_path)
@@ -264,188 +503,30 @@ def run_scan(
         else:
             sources_to_run = sources
         
-        for src in sources_to_run:
-            print_source_header(src)
-            pages: List[BOPage] = []
-            
-            if src == "BOP":
-                print(f"📅 Target Date: {resolved_date.strftime('%Y-%m-%d')} (BOP format: {resolved_date.day}-{resolved_date.month}-{resolved_date.year % 100})")
-                fetcher = BOPFetcher()
-                bop_parser = BOPParser()
-                tmp_pdf_path = get_temp_path("bop_bulletin.pdf")
-                
-                try:
-                    print("🌐 Connecting to www.boplaspalmas.net...")
-                    pdf_stream = fetcher.fetch(resolved_date)
-                    print("📥 Download complete! Offloading to disk buffer...")
-                    tmp_pdf_path.write_bytes(pdf_stream.getvalue())
-                    print("🔎 Parsing PDF from ephemeral storage...")
-                    pages = bop_parser.parse(tmp_pdf_path)
-                except BOPNotPublishedError as e:
-                    if is_default_date:
-                        print(f"⚠️  No BOP bulletin found for today ({resolved_date.strftime('%Y-%m-%d')}).")
-                        print("🔄 Falling back to the latest available bulletin on the website...")
-                        try:
-                            pdf_stream, latest_date = fetcher.fetch_latest()
-                            if is_lambda and latest_date < resolved_date:
-                                print(f"⚠️  Lambda Mode: Skipping fallback bulletin dated {latest_date.strftime('%Y-%m-%d')} to avoid duplicate notifications.")
-                            else:
-                                print(f"📥 Found and downloaded latest BOP bulletin from: {latest_date.strftime('%Y-%m-%d')}")
-                                tmp_pdf_path.write_bytes(pdf_stream.getvalue())
-                                pages = bop_parser.parse(tmp_pdf_path)
-                        except Exception as fallback_err:
-                            print(f"❌ BOP fallback failed: {fallback_err}", file=sys.stderr)
-                        finally:
-                            if tmp_pdf_path.exists():
-                                tmp_pdf_path.unlink(missing_ok=True)
-                    else:
-                        print(f"⚠️  {e}")
-                except BOPFetchError as e:
-                    print(f"❌ BOP download failed: {e}", file=sys.stderr)
-                except Exception as e:
-                    print(f"❌ Unexpected BOP error: {e}", file=sys.stderr)
-                finally:
-                    if tmp_pdf_path.exists():
-                        tmp_pdf_path.unlink(missing_ok=True)
-                    
-            elif src == "BOC":
-                print(f"📅 Target Date: {resolved_date.strftime('%Y-%m-%d')}")
-                fetcher = BOCFetcher()
-                boc_parser = BOCParser()
-                
-                try:
-                    print("🌐 Connecting to www.gobiernodecanarias.org RSS feeds...")
-                    xml_stream = fetcher.fetch(resolved_date)
-                    pages = boc_parser.parse(xml_stream)
-                    
-                    if not pages and is_default_date:
-                        print(f"⚠️  No BOC announcements found for today ({resolved_date.strftime('%Y-%m-%d')}).")
-                        print("🔄 Falling back to the latest date present in the RSS feed...")
-                        try:
-                            xml_stream, latest_date = fetcher.fetch_latest()
-                            if is_lambda and latest_date < resolved_date:
-                                print(f"⚠️  Lambda Mode: Skipping fallback announcements dated {latest_date.strftime('%Y-%m-%d')} to avoid duplicate notifications.")
-                            else:
-                                print(f"📥 Found and downloaded latest BOC announcements from: {latest_date.strftime('%Y-%m-%d')}")
-                                pages = boc_parser.parse(xml_stream)
-                        except Exception as fallback_err:
-                            print(f"❌ BOC fallback failed: {fallback_err}", file=sys.stderr)
-                except BOCFetchError as e:
-                    print(f"❌ BOC download failed: {e}", file=sys.stderr)
-                except Exception as e:
-                    print(f"❌ Unexpected BOC error: {e}", file=sys.stderr)
+        # Run sources concurrently
+        from concurrent.futures import ThreadPoolExecutor
+        results_by_source = {}
 
-            elif src == "BOE":
-                print(f"📅 Target Date: {resolved_date.strftime('%Y-%m-%d')}")
-                fetcher = BOEFetcher()
-                boe_parser = BOEParser(pdf_fetcher=fetcher)
-                
-                try:
-                    print("🌐 Connecting to www.boe.es Open Data API...")
-                    xml_stream = fetcher.fetch(resolved_date)
-                    print("📥 Download complete! Parsing XML in memory...")
-                    pages = boe_parser.parse(xml_stream)
-                    
-                    if not pages and is_default_date:
-                        print(f"⚠️  No BOE announcements found for today ({resolved_date.strftime('%Y-%m-%d')}).")
-                        print("🔄 Falling back to the latest available bulletin...")
-                        try:
-                            xml_stream, latest_date = fetcher.fetch_latest()
-                            if is_lambda and latest_date < resolved_date:
-                                print(f"⚠️  Lambda Mode: Skipping fallback announcements dated {latest_date.strftime('%Y-%m-%d')} to avoid duplicate notifications.")
-                            else:
-                                print(f"📥 Found and downloaded latest BOE bulletin from: {latest_date.strftime('%Y-%m-%d')}")
-                                pages = boe_parser.parse(xml_stream)
-                        except Exception as fallback_err:
-                            print(f"❌ BOE fallback failed: {fallback_err}", file=sys.stderr)
-                except BOENotPublishedError as e:
-                    if is_default_date:
-                        print(f"⚠️  No BOE bulletin found for today ({resolved_date.strftime('%Y-%m-%d')}).")
-                        print("🔄 Falling back to the latest available bulletin...")
-                        try:
-                            xml_stream, latest_date = fetcher.fetch_latest()
-                            if is_lambda and latest_date < resolved_date:
-                                print(f"⚠️  Lambda Mode: Skipping fallback announcements dated {latest_date.strftime('%Y-%m-%d')} to avoid duplicate notifications.")
-                            else:
-                                print(f"📥 Found and downloaded latest BOE bulletin from: {latest_date.strftime('%Y-%m-%d')}")
-                                pages = boe_parser.parse(xml_stream)
-                        except Exception as fallback_err:
-                            print(f"❌ BOE fallback failed: {fallback_err}", file=sys.stderr)
-                    else:
-                        print(f"⚠️  {e}")
-                except BOEFetchError as e:
-                    print(f"❌ BOE download failed: {e}", file=sys.stderr)
-                except Exception as e:
-                    print(f"❌ Unexpected BOE error: {e}", file=sys.stderr)
-            
-            elif src == "SAGULPA":
-                print(f"📅 Target Date: {resolved_date.strftime('%Y-%m-%d') if (target_date or is_lambda) else 'ALL ACTIVE OPENINGS'}")
-                fetcher = SagulpaFetcher()
-                sagulpa_parser = SagulpaParser(fetcher=fetcher)
-                
-                try:
-                    print("🌐 Connecting to www.sagulpa.com job board...")
-                    list_stream = fetcher.fetch(resolved_date)
-                    print("📥 Download complete! Parsing HTML and deep-scanning active details...")
-                    pages = sagulpa_parser.parse(list_stream, target_date=resolved_date if is_lambda else target_date)
-                except Exception as e:
-                    print(f"❌ Sagulpa download/parse failed: {e}", file=sys.stderr)
-            
-            elif src == "EPSO":
-                print(f"📅 Target Date: {resolved_date.strftime('%Y-%m-%d') if (target_date or is_lambda) else 'ALL ACTIVE OPENINGS'}")
-                fetcher = EPSOFetcher()
-                epso_parser = EPSOParser()
-                
-                try:
-                    print("🌐 Connecting to EU Open Data CKAN API...")
-                    raw_data = fetcher.fetch_raw()
-                    print("📥 Download complete! Parsing CSV...")
-                    pages = epso_parser.parse_raw(raw_data, target_date=resolved_date if is_lambda else target_date)
-                except Exception as e:
-                    print(f"❌ EPSO download/parse failed: {e}", file=sys.stderr)
-                    
-            elif src == "EURES":
-                print(f"📅 Target Date: {resolved_date.strftime('%Y-%m-%d') if (target_date or is_lambda) else 'ALL ACTIVE OPENINGS'}")
-                fetcher = EURESFetcher()
-                eures_parser = EURESParser()
-                
-                try:
-                    raw_data = fetcher.fetch_raw()
-                    if raw_data:
-                        print("📥 Download complete! Parsing JSON...")
-                        pages = eures_parser.parse_raw(raw_data, target_date=resolved_date if is_lambda else target_date)
-                    else:
-                        print("⚠️ Skipping EURES scanning due to live fetch bypass/failure.")
-                except Exception as e:
-                    print(f"❌ EURES download/parse failed: {e}", file=sys.stderr)
-                    
-            elif src == "EULISA":
-                print(f"📅 Target Date: {resolved_date.strftime('%Y-%m-%d') if (target_date or is_lambda) else 'ALL ACTIVE OPENINGS'}")
-                fetcher = EULISAFetcher()
-                eulisa_parser = EULISAParser()
-                
-                try:
-                    print("🌐 Connecting to eu-LISA Careers Portal...")
-                    raw_data = fetcher.fetch_raw()
-                    print("📥 Download complete! Parsing HTML...")
-                    pages = eulisa_parser.parse_raw(raw_data, target_date=resolved_date if is_lambda else target_date)
-                except Exception as e:
-                    print(f"❌ eu-LISA download/parse failed: {e}", file=sys.stderr)
-            
-            # Scan the pages/items for this source
-            if pages:
-                print(f"🔎 Scanning {len(pages)} pages/entries in this bulletin...")
-                src_announcements = []
-                for page in pages:
-                    src_announcements.extend(kf.search_page(page))
-                
-                if src_announcements:
-                    print(f"🎉 Success: Found {len(src_announcements)} matching announcement(s)!")
-                    all_announcements.extend(src_announcements)
-                else:
-                    print("ℹ️  No matching IT jobs found in this source for this date.")
-            else:
-                print("ℹ️  No target pages were fetched or parsed for this source.")
+        def run_thread(src):
+            results_by_source[src] = _scan_single_source(
+                src=src,
+                resolved_date=resolved_date,
+                target_date=target_date,
+                is_default_date=is_default_date,
+                is_lambda=is_lambda,
+                kf=kf
+            )
+
+        with ThreadPoolExecutor(max_workers=len(sources_to_run)) as executor:
+            list(executor.map(run_thread, sources_to_run))
+
+        # Print all buffered outputs sequentially and collect announcements
+        for src in sources_to_run:
+            if src in results_by_source:
+                src_announcements, log_output = results_by_source[src]
+                if log_output:
+                    print(log_output, end="")
+                all_announcements.extend(src_announcements)
 
     if all_announcements and not no_ai:
         from job_finder.gemini_validator import GeminiValidator
@@ -456,6 +537,7 @@ def run_scan(
             print(f"✅ AI validation complete. {len(all_announcements)} confirmed as relevant.")
 
     return all_announcements
+
 
 
 def lambda_handler(event, context):

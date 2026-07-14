@@ -17,6 +17,7 @@ To prevent execution failures, always adhere to the following command rules:
 2. **Execute Python modules as scripts**: When running commands like `pytest` or CLI tools, always run them using `python -m <module>` (e.g. `python -m pytest` or `python -m job_finder.main`) to ensure that Windows system PATH discrepancies do not cause "CommandNotFoundException" errors.
 3. **Handle terminal encoding explicitly**: Windows PowerShell environments default to regional encodings (like `cp1252`), which fail to encode box-drawing or special Spanish characters. Ensure any CLI printed borders are wrapped in try-catch encoding blocks (such as `sys.stdout.reconfigure(encoding='utf-8')`).
 4. **Module Renaming & Package Root**: The project has been fully renamed from `bop_finder` to `job_finder`. All core imports, test scripts, and CLI definitions inside `pyproject.toml` reference `job_finder`. Keep any source-specific terminology localized to their modules (e.g., `BOPFetcher` should retain "BOP" as it refers specifically to the Las Palmas BOP gazette).
+5. **File Searching & Manipulation**: The default Windows environment lacks `grep`. The `grep_search` tool may fail due to PATH issues. For robust searching, use PowerShell's `Get-ChildItem -Recurse -Include *.py | Select-String "pattern"`. For bulk multi-file string replacements, writing and executing a temporary Python script in the `scratch` directory is highly recommended over PowerShell regex replacements.
 
 ---
 
@@ -163,18 +164,23 @@ AI validation is designed as a non-breaking optional enhancement:
 ### 4. Low-Reasoning Prompt Strategy, Structured Outputs, and Context Inversion
 To keep API latency and costs low, the validation layer is optimized for **Gemini Flash 3.5 (low reasoning)** using the official Google GenAI SDK:
 * **API Specification**: Uses `client.models.generate_content(model="gemini-3.5-flash", ...)` under `google-genai>=1.0.0`.
-* **Low Reasoning Mode**: Explicitly disables deep thinking by configuring `thinking_config=types.ThinkingConfig(thinking_budget=0)` to force rapid, cost-effective evaluation.
-* **Structured JSON Outputs**: Enforces deterministic, type-safe schema outputs by configuring `response_mime_type="application/json"` and mapping to a `JobOfferValidation` Pydantic model (`is_tech_job`, `job_title`, `organism`, `confidence`).
+* **Low Reasoning Mode**: Explicitly disables deep thinking by configuring `thinking_config=types.ThinkingConfig(thinking_level="low")` to force rapid, cost-effective evaluation. (Note: Avoid `thinking_budget=0` as it is deprecated and raises strict Pydantic extra-parameter rejections on modern SDKs).
+* **Structured JSON Outputs**: Enforces deterministic, type-safe schema outputs by configuring `response_mime_type="application/json"` and mapping to a `JobOfferValidationBatch` Pydantic model, wrapping a list of `JobOfferValidationItem` matching input IDs (`id`, `is_tech_job`, `job_title`, `organism`, `confidence`, `reason`).
 * **Context Inversion & Prompts Separation**: System and user template prompts are loaded externally from `src/job_finder/config_prompts.yaml`. The user template places the raw text payload at the top (`<context>`) and task instructions at the bottom (`<task>`), anchoring attention and reducing instruction-drift.
 * **Rule-Based Bias (Recall Preference)**: The system prompt explicitly enforces recall bias: *"WHEN IN DOUBT, CLASSIFY AS TRUE. We prefer false positives over false negatives."*
 * **Failsafe Default**: If the SDK fails to call, or if JSON parsing via Pydantic raises validation errors, the system defaults to keeping the announcement (`is_tech_job = True`) to prevent false negatives.
 
-### 5. Free-Tier Quota & Rate Limit Optimization (429 Backoff & 1-to-1 Sequential Scans)
-To successfully operate under the Google AI Studio free tier limits (5-10 RPM, 15 RPD):
-* **Cognitive Isolation**: Processes exactly 1 unique announcement per API call (1-to-1) for maximum accuracy.
-* **Mandatory Throttling (Option A)**: Implements sequential processing with a strict `time.sleep(12.0)` interval between consecutive validation calls. This caps requests at 5 RPM, staying safely below the 5-10 RPM ceiling.
-* **Exponential Backoff on 429 Errors**: Wraps the request in a retry loop (up to 3 attempts). If an HTTP 429 (Too Many Requests) is returned, the validator outputs a warning to `sys.stderr`, sleeps for `60.0` seconds to allow the rate limit to reset, and retries.
-* **Granular Failsafe**: If validation fails all 3 attempts or encounters a non-429 error, it defaults to keeping the candidate, ensuring transient errors do not disrupt the scan.
+### 5. Free-Tier Quota & Rate Limit Optimization (429/503 Backoff & Chunked Parallel Scans)
+To successfully operate under the Google AI Studio free tier limits:
+* **Chunking**: Slices unique announcements into chunks of exactly 10 items. This reduces the number of API requests up to 10x, significantly avoiding rate-limit pressure.
+* **ThreadPoolExecutor Concurrency**: Executes chunks concurrently using a `ThreadPoolExecutor` for high-throughput evaluation.
+* **Exponential Backoff on 429/503 Errors**: Wraps each chunk call in a retry loop (up to 3 attempts). If an HTTP 429 (Too Many Requests) or HTTP 503 (Service Unavailable) is encountered, the validator sleeps for `60.0` seconds (for 429) or `10.0` seconds (for 503) and retries.
+* **Granular Failsafe**: If validation fails all 3 attempts or encounters a non-retryable error, it defaults to keeping the candidate, ensuring transient errors do not disrupt the scan.
+
+### 6. Parallel Fetching & Log Buffering
+* **ThreadPoolExecutor**: `run_scan()` uses `ThreadPoolExecutor` to launch the fetches for all selected sources concurrently.
+* **Atomic Log Buffering**: To prevent interleaved console output from multiple concurrent threads in CloudWatch or local terminals, stdout and stderr are dynamically wrapped in a custom `ThreadLocalStream` proxy class. Each scanner thread captures its output to a thread-local `io.StringIO` buffer, which is printed sequentially by the main thread after all fetches complete.
+
 
 ---
 
@@ -210,8 +216,12 @@ To successfully operate under the Google AI Studio free tier limits (5-10 RPM, 1
 ### 3. Notification Dispatching (`notifier.py`)
 * The dispatching logic is housed in [notifier.py](file:///c:/Users/muk04/Development/PyCharmProjects/job-finder/src/job_finder/notifier.py).
 * It parses environment variables to decide which channels to alert: `DISCORD_WEBHOOK_URL` (Discord option), and both `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` (Telegram option).
-* **Discord Chunks**: Discord webhook payloads allow a maximum of 10 embeds. The dispatcher chunks list arrays into sets of 10 and sends them sequentially with a `time.sleep(0.5)` to avoid HTTP 429 rate limit resets.
+* **Discord Chunks**: Discord webhook payloads allow a maximum of 10 embeds, *but* they also enforce a strict 6,000-character payload ceiling across all fields. Bundling up to 10 dense jobs easily violates this, causing silent HTTP 400 Bad Request rejections. To guarantee payload compliance, the dispatcher chunks messages safely into sets of **2 embeds** and sends them sequentially with a `time.sleep(0.5)` to avoid API rate limits.
 * **Telegram HTML Formatting**: Telegram messages are parsed as HTML. It handles Unicode and HTML escaping natively, executing separate sequential POST requests to the `sendMessage` endpoint with a `time.sleep(0.5)` cooldown.
+
+### 4. Ephemeral PDF Buffering (Memory Safety)
+* **BOP PDF In-Memory Avoidance**: When downloading BOP gazettes online, the system bypasses direct in-memory PDF parsing to protect the Lambda container from memory allocation spikes and OOM exceptions.
+* **Disk Buffering Flow**: The downloaded `BytesIO` buffer is dumped to `/tmp/bop_bulletin.pdf` on the container's ephemeral storage first. The parser reads from the disk buffer, which is immediately deleted via `try...finally` block (using `Path.unlink(missing_ok=True)`) to ensure the filesystem is cleaned up even if parsing exceptions are raised.
 
 ---
 

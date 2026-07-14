@@ -252,20 +252,19 @@ def test_validator_filters_non_it_jobs(monkeypatch):
         ParsedAnnouncement(organism="Org C", description="Desarrollador", page_number=3, matched_keywords=["desarrollador"], url="http://c")
     ]
     
-    responses = [
-        '{"is_tech_job": true, "job_title": "Técnico de Sistemas", "organism": "Org A", "confidence": "high"}',
-        '{"is_tech_job": false, "job_title": null, "organism": "Org B", "confidence": "high"}',
-        '{"is_tech_job": true, "job_title": "Desarrollador", "organism": "Org C", "confidence": "high"}'
-    ]
-    resp_iter = iter(responses)
-    
     class MockResponse:
         def __init__(self, text):
             self.text = text
             
     class MockModels:
         def generate_content(self, model, contents, config):
-            return MockResponse(next(resp_iter))
+            return MockResponse(
+                '{"results": ['
+                '  {"id": 0, "is_tech_job": true, "job_title": "Técnico de Sistemas", "organism": "Org A", "confidence": "high"},'
+                '  {"id": 1, "is_tech_job": false, "job_title": null, "organism": "Org B", "confidence": "high"},'
+                '  {"id": 2, "is_tech_job": true, "job_title": "Desarrollador", "organism": "Org C", "confidence": "high"}'
+                ']}'
+            )
             
     class MockClient:
         def __init__(self, api_key):
@@ -335,7 +334,7 @@ def test_validator_deduplication(monkeypatch):
     class MockModels:
         def generate_content(self, model, contents, config):
             captured_calls.append((model, contents, config))
-            return MockResponse('{"is_tech_job": true, "job_title": "IT", "organism": "Org", "confidence": "high"}')
+            return MockResponse('{"results": [{"id": 0, "is_tech_job": true, "job_title": "IT", "organism": "Org", "confidence": "high"}, {"id": 1, "is_tech_job": true, "job_title": "IT", "organism": "Org", "confidence": "high"}]}')
             
     class MockClient:
         def __init__(self, api_key):
@@ -347,7 +346,7 @@ def test_validator_deduplication(monkeypatch):
     validator = GeminiValidator(api_key="mock-key")
     result = validator.validate_batch(announcements)
     
-    assert len(captured_calls) == 2
+    assert len(captured_calls) == 1
     assert len(result) == 3
 
 
@@ -363,7 +362,7 @@ def test_validator_context_inversion(monkeypatch):
     class MockModels:
         def generate_content(self, model, contents, config):
             captured_contents.append(contents)
-            return MockResponse('{"is_tech_job": true, "job_title": "IT", "organism": "Org", "confidence": "high"}')
+            return MockResponse('{"results": [{"id": 0, "is_tech_job": true, "job_title": "IT", "organism": "Org", "confidence": "high"}]}')
             
     class MockClient:
         def __init__(self, api_key):
@@ -398,7 +397,7 @@ def test_validator_prompts_loaded_from_yaml(monkeypatch):
             
     class MockModels:
         def generate_content(self, model, contents, config):
-            return MockResponse('{"is_tech_job": true, "job_title": "IT", "organism": "Org", "confidence": "high"}')
+            return MockResponse('{"results": [{"id": 0, "is_tech_job": true, "job_title": "IT", "organism": "Org", "confidence": "high"}]}')
             
     class MockClient:
         def __init__(self, api_key):
@@ -416,7 +415,7 @@ def test_validator_prompts_loaded_from_yaml(monkeypatch):
 
 def test_validator_structured_output_config(monkeypatch):
     from google import genai
-    from job_finder.gemini_validator import JobOfferValidation
+    from job_finder.gemini_validator import JobOfferValidationBatch
     
     captured_configs = []
     
@@ -427,7 +426,7 @@ def test_validator_structured_output_config(monkeypatch):
     class MockModels:
         def generate_content(self, model, contents, config):
             captured_configs.append(config)
-            return MockResponse('{"is_tech_job": true, "job_title": "IT", "organism": "Org", "confidence": "high"}')
+            return MockResponse('{"results": [{"id": 0, "is_tech_job": true, "job_title": "IT", "organism": "Org", "confidence": "high"}]}')
             
     class MockClient:
         def __init__(self, api_key):
@@ -443,7 +442,7 @@ def test_validator_structured_output_config(monkeypatch):
     config = captured_configs[0]
     
     assert config.response_mime_type == "application/json"
-    assert config.response_schema == JobOfferValidation
+    assert config.response_schema == JobOfferValidationBatch
     assert str(config.thinking_config.thinking_level).lower().endswith("low")
 
 
@@ -496,7 +495,7 @@ def test_validator_retry_on_429(monkeypatch):
                 class MockResponse:
                     def __init__(self, text):
                         self.text = text
-                return MockResponse('{"is_tech_job": true, "job_title": "IT", "organism": "Org", "confidence": "high"}')
+                return MockResponse('{"results": [{"id": 0, "is_tech_job": true, "job_title": "IT", "organism": "Org", "confidence": "high"}]}')
                 
     class MockClient:
         def __init__(self, api_key):

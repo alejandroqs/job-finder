@@ -2,6 +2,7 @@ import os
 import sys
 import yaml
 import time
+import json
 from typing import List, Dict, Literal
 from pydantic import BaseModel, Field
 
@@ -30,6 +31,36 @@ class JobOfferValidation(BaseModel):
     )
     confidence: Literal["high", "medium", "low"] = Field(
         description="Confidence level in the classification."
+    )
+
+
+class JobOfferValidationItem(BaseModel):
+    """Item verdict representing classification of a single job within a batch."""
+    id: int = Field(description="The index/id of the job from the input list.")
+    is_tech_job: bool = Field(
+        description="True if the text is a real IT/Software/ICT job opening or employment pool. False otherwise."
+    )
+    job_title: str | None = Field(
+        default=None,
+        description="Title of the position (e.g., Técnico de Sistemas). Null if not a valid offer."
+    )
+    organism: str | None = Field(
+        default=None,
+        description="The issuing organism (e.g., Ayuntamiento, Ministerio)."
+    )
+    confidence: Literal["high", "medium", "low"] = Field(
+        description="Confidence level in the classification."
+    )
+    reason: str | None = Field(
+        default=None,
+        description="Reason/rationale for this verdict."
+    )
+
+
+class JobOfferValidationBatch(BaseModel):
+    """Structured output schema for a batch of Gemini job classifications."""
+    results: List[JobOfferValidationItem] = Field(
+        description="List of validation results matching the input IDs."
     )
 
 
@@ -65,7 +96,7 @@ class GeminiValidator(BaseAIValidator):
             print(f"⚠️ Error loading prompt configuration from {yaml_path}: {e}", file=sys.stderr)
             return {
                 "system_prompt": "You are an IT job classifier. Determine if the text is a real IT job opening.",
-                "user_prompt_template": "<context>\n{extracted_text}\n</context>\n<task>\nIs this a tech job?\n</task>"
+                "user_prompt_template": "<context>\n{jobs_json}\n</context>\n<task>\nAnalyze the jobs and return results.\n</task>"
             }
 
     def validate_batch(self, announcements: List[ParsedAnnouncement]) -> List[ParsedAnnouncement]:
@@ -96,29 +127,51 @@ class GeminiValidator(BaseAIValidator):
             verdict_by_url = {ann.url: True for ann in unique_announcements}
             num_unique = len(unique_announcements)
 
-            # 2. Sequential Validation with Rate Limiting
-            for idx, ann in enumerate(unique_announcements):
-                validation_result = self._validate_single(ann)
-                
-                if validation_result is not None:
-                    verdict_by_url[ann.url] = validation_result.is_tech_job
-                    print(
-                        f"🤖 AI Val ({idx + 1}/{num_unique}): {ann.organism} -> "
-                        f"is_tech_job={validation_result.is_tech_job} "
-                        f"(conf: {validation_result.confidence}, title: {validation_result.job_title})",
-                        file=sys.stderr
-                    )
-                else:
-                    # Result is None due to error, defaults to True (YES)
-                    print(
-                        f"⚠️ AI Val ({idx + 1}/{num_unique}) failed. Keeping by default (recall-bias).",
-                        file=sys.stderr
-                    )
+            # Slice unique announcements into chunks of 10
+            chunk_size = 10
+            chunks = [unique_announcements[i:i + chunk_size] for i in range(0, num_unique, chunk_size)]
+            
+            # Execute validation for each chunk in parallel using ThreadPoolExecutor
+            from concurrent.futures import ThreadPoolExecutor
+            results_by_chunk = [None] * len(chunks)
+            
+            def validate_and_store(chunk_idx: int, chunk_list: List[ParsedAnnouncement]):
+                results_by_chunk[chunk_idx] = self._validate_chunk(chunk_list)
 
-                # Sleep 12 seconds between calls to stay under the 5-10 RPM limit (Option A)
-                # Avoid sleeping after the last unique item
-                if idx < num_unique - 1:
-                    time.sleep(12.0)
+            with ThreadPoolExecutor(max_workers=len(chunks)) as executor:
+                list(executor.map(lambda pair: validate_and_store(pair[0], pair[1]), enumerate(chunks)))
+
+            # Now parse the results and update verdict_by_url
+            for chunk_idx, chunk in enumerate(chunks):
+                chunk_results = results_by_chunk[chunk_idx]
+                if chunk_results is not None:
+                    # Map results by ID
+                    results_by_id = {item.id: item for item in chunk_results}
+                    for idx, ann in enumerate(chunk):
+                        item = results_by_id.get(idx)
+                        if item is not None:
+                            verdict_by_url[ann.url] = item.is_tech_job
+                            print(
+                                f"🤖 AI Val (Chunk {chunk_idx+1}, Job {idx+1}): {ann.organism} -> "
+                                f"is_tech_job={item.is_tech_job} "
+                                f"(conf: {item.confidence}, title: {item.job_title})",
+                                file=sys.stderr
+                            )
+                        else:
+                            # If Gemini response missed this ID, default to True (recall bias)
+                            verdict_by_url[ann.url] = True
+                            print(
+                                f"⚠️ AI Val (Chunk {chunk_idx+1}, Job {idx+1}): Missing from response. Keeping by default (recall-bias).",
+                                file=sys.stderr
+                            )
+                else:
+                    # If validation of this chunk failed, default to True for all its jobs
+                    for idx, ann in enumerate(chunk):
+                        verdict_by_url[ann.url] = True
+                        print(
+                            f"⚠️ AI Val (Chunk {chunk_idx+1}, Job {idx+1}) failed. Keeping by default (recall-bias).",
+                            file=sys.stderr
+                        )
 
             # 3. Map YES verdicts back to the full list.
             kept_urls = {url for url, verdict in verdict_by_url.items() if verdict}
@@ -129,16 +182,29 @@ class GeminiValidator(BaseAIValidator):
             print(f"⚠️ AI validation failed: {e}. Gracefully keeping all announcements.", file=sys.stderr)
             return announcements
 
-    def _validate_single(self, ann: ParsedAnnouncement) -> JobOfferValidation | None:
+    def _validate_chunk(self, chunk: List[ParsedAnnouncement]) -> List[JobOfferValidationItem] | None:
         if not self.enabled:
             return None
 
-        desc = ann.description
-        if len(desc) > 1500:
-            desc = desc[:1500] + "..."
-
+        # Prepare the JSON list of jobs
+        jobs_to_send = []
+        for idx, ann in enumerate(chunk):
+            desc = ann.description
+            if len(desc) > 1500:
+                desc = desc[:1500] + "..."
+            jobs_to_send.append({
+                "id": idx,
+                "text": desc
+            })
+        
+        jobs_json_str = json.dumps(jobs_to_send, ensure_ascii=False)
+        
         # Simple and safe string replacement to avoid KeyError from curly braces in source text
-        formatted_prompt = self.user_prompt_template.replace("{extracted_text}", desc)
+        formatted_prompt = self.user_prompt_template
+        if "{jobs_json}" in formatted_prompt:
+            formatted_prompt = formatted_prompt.replace("{jobs_json}", jobs_json_str)
+        else:
+            formatted_prompt = formatted_prompt.replace("{extracted_text}", jobs_json_str)
 
         max_retries = 3
         for attempt in range(max_retries):
@@ -149,7 +215,7 @@ class GeminiValidator(BaseAIValidator):
                     config=types.GenerateContentConfig(
                         system_instruction=self.system_prompt,
                         response_mime_type="application/json",
-                        response_schema=JobOfferValidation,
+                        response_schema=JobOfferValidationBatch,
                         thinking_config=types.ThinkingConfig(thinking_level="low")
                     )
                 )
@@ -157,18 +223,26 @@ class GeminiValidator(BaseAIValidator):
                 if not response.text:
                     raise ValueError("Model returned empty response text")
 
-                result = JobOfferValidation.model_validate_json(response.text)
-                return result
+                batch_result = JobOfferValidationBatch.model_validate_json(response.text)
+                return batch_result.results
 
             except Exception as e:
-                # Handle 429 Too Many Requests (Rate limit)
+                # Handle 429 Too Many Requests (Rate limit) or 503 (Unavailable)
                 is_429 = False
-                if hasattr(e, "code") and getattr(e, "code") == 429:
+                is_503 = False
+                err_str = str(e)
+                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
                     is_429 = True
-                elif hasattr(e, "status_code") and getattr(e, "status_code") == 429:
-                    is_429 = True
-                elif "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                    is_429 = True
+                if "503" in err_str or "UNAVAILABLE" in err_str:
+                    is_503 = True
+
+                for attr in ("code", "status_code"):
+                    if hasattr(e, attr):
+                        code = getattr(e, attr)
+                        if code == 429:
+                            is_429 = True
+                        elif code == 503:
+                            is_503 = True
 
                 if is_429:
                     print(
@@ -177,6 +251,13 @@ class GeminiValidator(BaseAIValidator):
                         file=sys.stderr
                     )
                     time.sleep(60.0)
+                elif is_503:
+                    print(
+                        f"⏳ API service unavailable (503) reached. Sleeping for 10 seconds before retrying "
+                        f"(attempt {attempt + 1}/{max_retries})...",
+                        file=sys.stderr
+                    )
+                    time.sleep(10.0)
                 else:
                     print(
                         f"⚠️ Error during Gemini validation attempt {attempt + 1}: {e}",
@@ -186,3 +267,4 @@ class GeminiValidator(BaseAIValidator):
                         time.sleep(2.0)
 
         return None
+

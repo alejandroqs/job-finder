@@ -8,6 +8,8 @@ An enterprise-grade, clean-architecture command-line tool that monitors the **Of
 
 Because official gazettes publish raw, unstructured daily gazettes (monolithic PDF files for BOP, HTML/RSS structures for BOC, and custom Open Data API XML streams for BOE) without clean public APIs, this tool implements a custom high-performance streaming, parsing, and Natural Language Processing (NLP) regex pipeline to isolate and report high-value career opportunities.
 
+> **Project Evolution**: Originally launched as `bop_finder` (focusing solely on the BOP Las Palmas gazette), the project was globally renamed to `job-finder` to accurately reflect its expanded multi-source capabilities across Spanish and European Union databases.
+
 ---
 
 ## 🏗️ Architectural Blueprint
@@ -48,6 +50,8 @@ graph TD
 
 ### Key Software Engineering Design Patterns
 * **Dependency Inversion**: High-level orchestrators interface exclusively with abstract classes (`BaseFetcher`, `BaseParser`), facilitating seamless transitions to alternative engines without modifying core orchestration logic.
+* **Parallel Source Fetching**: Utilizes `ThreadPoolExecutor` in the main orchestrator to scan all configured sources concurrently, drastically reducing overall execution time. Ensures console stability via a custom atomic `ThreadLocalStream` buffer to prevent interleaved logs.
+* **Batched AI Validation**: Employs parallel chunking (batches of 10) to validate job candidates via Gemini Flash 3.5. This drastically cuts API latency and network round-trips while managing rate limits via exponential backoff (429/503 HTTP codes) and enforcing deterministic JSON structured outputs.
 * **Symmetric Merging & Date Filtering**: The BOC integration merges multiple RSS feeds concurrently and applies precise target-date filtering in the fetch phase, converting unstructured feed items into clean in-memory XML buffers.
 * **Stateful Stream Processing (Sticky Headers)**: BOP gazettes contain unstructured, multi-page layout flows. The PDF parser utilizes a stateful sticky-header pattern to associate announcements with their respective municipal departments ("organisms") across page breaks.
 * **Accent-Insensitive Spanish Search**: Utilizes Unicode NFD normalization and combining-character filtering to achieve 100% robust, accent-insensitive Spanish keyword matching, preventing missing matches due to accent differences (e.g. `informática` vs `informatica`).
@@ -126,6 +130,11 @@ python -m job_finder.main --config path/to/my_keywords.yaml
 ### 6. Optional Gemini AI Validation Layer
 The tool includes an optional post-filter step that sends matching candidate announcements to Gemini Flash 3.5 (low reasoning) via the Google AI Studio API for a binary relevance check. This filters out complex Spanish bulletin false positives (e.g. administrative assistant or cleaner positions that mention "informática" in submission boilerplate).
 
+**High-Performance AI Optimization**:
+* **Parallel Batching**: Submits up to 10 candidates simultaneously per request, keeping context window usage tight and validating large batches rapidly under Lambda timeout limits.
+* **Automatic Retries**: Implements robust exponential backoff on 429 (Too Many Requests) or 503 (Service Unavailable) errors to ensure high availability on the Google AI Studio free tier.
+* **Structured Output**: Forces typed JSON structures via Pydantic (`JobOfferValidationBatch`) to guarantee deterministic validation output.
+
 #### Setup:
 1. Copy `.env.example` to `.env`:
    ```powershell
@@ -192,6 +201,12 @@ Get-Content response.json
 ```
 
 In your AWS Lambda console, set the handler to **`job_finder.main.lambda_handler`** with a Python 3.14 runtime, and configure a timeout of at least **2 minutes 30 seconds**.
+
+### Operational Limits & Memory Optimization
+
+To guarantee high reliability in serverless environments, the following optimizations are built in:
+* **Memory Spike Mitigation**: Large PDF files (like BOP bulletins) are written to the ephemeral `/tmp/bop_bulletin.pdf` disk buffer instead of being kept in RAM during execution. The file is cleanly deleted immediately after parsing using a defensive `try...finally` cleanup structure, avoiding Out Of Memory (OOM) container throttling.
+* **Discord Webhook Limits**: Discord enforces a 6,000-character ceiling across all fields in a single webhook payload. The dispatcher groups embeds into small chunks of **2 announcements** per request to prevent silent HTTP 400 Bad Request rejections.
 
 ---
 

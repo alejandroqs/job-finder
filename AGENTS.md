@@ -199,6 +199,11 @@ To successfully operate under the Google AI Studio free tier limits:
 ### 1. Spanish Source Grouping (`ES`)
 * The CLI scanner supports the `--source ES` option which dynamically aggregates all Spanish job sources: `BOP`, `BOC`, `BOE`, and `SAGULPA` for online scans.
 
+### 2. Sagulpa Date-Boundary & Locale Constraints
+* **Closing Date Parsing**: Unlike official daily gazettes, Sagulpa listings remain active for weeks. The parser extracts the closing date from `Fecha finalización de presentación de candidaturas:`.
+* **Zero OS-Locale Dependency**: Because Python's `datetime.strptime` month name parsing relies on OS-installed language packs (which lightweight Lambda containers lack), the parser bypasses OS-level locales. It maps Spanish month names (e.g. `junio`) to integers using a hardcoded `SPANISH_MONTHS` dictionary.
+* **Target-Date Boundary**: When a `target_date` is specified (e.g. in Lambda execution), the parser collects all active listings where `target_date <= closing_date`, preventing missed vacancies when scans run days late.
+
 ---
 
 ## 🗺️ Domain Insights: AWS Lambda Stateless Architecture & Notifications
@@ -211,7 +216,7 @@ To successfully operate under the Google AI Studio free tier limits:
 ### 2. Stateless Date-Filtering Constraints
 * Because AWS Lambda is completely ephemeral and lacks access to a persistent disk or local database, the crawler avoids duplicating alerts by verifying publishing dates.
 * **BOP/BOC/BOE Fallbacks**: When `is_lambda=True` is active, any fallback execution resulting from empty today bulletins (e.g. weekends) checks if the `latest_date` is strictly older than `resolved_date`. If so, the parser/scrape for that source is bypassed to prevent sending old/duplicated notifications.
-* **Constant Ingestion Feeds**: Feeds pulling all active openings (SAGULPA, EPSO, EURES, eu-LISA) are passed the resolved target date to filter out anything that wasn't published today.
+* **Constant Ingestion Feeds**: Feeds pulling all active openings (EPSO, EURES, eu-LISA) are passed the resolved target date to filter out anything that wasn't published today. SAGULPA, as a municipal job board, is filtered using the closing date boundary instead (retaining jobs where execution date <= closing date).
 
 ### 3. Notification Dispatching (`notifier.py`)
 * The dispatching logic is housed in [notifier.py](file:///c:/Users/muk04/Development/PyCharmProjects/job-finder/src/job_finder/notifier.py).

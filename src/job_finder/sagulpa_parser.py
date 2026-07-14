@@ -1,6 +1,7 @@
 import io
 import re
 import datetime
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Union, List, Optional
@@ -16,6 +17,11 @@ class SagulpaParser(BaseParser, BaseWebBoardParser):
     Supports standard BaseParser and specialized BaseWebBoardParser interfaces.
     """
 
+    SPANISH_MONTHS = {
+        "enero": 1, "febrero": 2, "marzo": 3, "abril": 4, "mayo": 5, "junio": 6,
+        "julio": 7, "agosto": 8, "septiembre": 9, "octubre": 10, "noviembre": 11, "diciembre": 12
+    }
+
     def __init__(self, fetcher: Optional[BaseWebBoardFetcher] = None):
         """
         Initialises the SagulpaParser.
@@ -26,6 +32,39 @@ class SagulpaParser(BaseParser, BaseWebBoardParser):
         self.fetcher = fetcher
         self.base_url = "https://www.sagulpa.com/"
         self.date_pattern = re.compile(r"Fecha de publicación:\s*(\d{2})/(\d{2})/(\d{4})", re.IGNORECASE)
+
+    def _extract_closing_date(self, li_text: str) -> Optional[datetime.date]:
+        """
+        Extracts the closing date (Fecha finalización de presentación de candidaturas)
+        from the normalized list item text. Bypasses OS locales by using a hardcoded dictionary.
+        """
+        normalized_text = " ".join(li_text.split())
+        match = re.search(
+            r"Fecha finalizaci[oó]n de presentaci[oó]n de candidaturas:\s*(.*)", 
+            normalized_text, 
+            re.IGNORECASE
+        )
+        if not match:
+            return None
+            
+        raw_val = match.group(1).strip()
+        
+        # 1. Try dd/mm/yyyy
+        m_date = re.search(r"(\d{1,2})/(\d{1,2})/(\d{4})", raw_val)
+        if m_date:
+            day, month, year = map(int, m_date.groups())
+            return datetime.date(year, month, day)
+            
+        # 2. Try Spanish words, e.g. "11 de junio de 2025"
+        m_words = re.search(r"(\d{1,2})\s+de\s+([a-zA-ZáéíóúÁÉÍÓÚñÑ]+)\s+de\s+(\d{4})", raw_val)
+        if m_words:
+            day_str, month_name, year_str = m_words.groups()
+            nfd_form = unicodedata.normalize('NFD', month_name)
+            month_clean = "".join([c for c in nfd_form if unicodedata.category(c) != 'Mn']).lower()
+            if month_clean in self.SPANISH_MONTHS:
+                return datetime.date(int(year_str), self.SPANISH_MONTHS[month_clean], int(day_str))
+                
+        return None
 
     def parse_list(self, list_html: str) -> List[dict]:
         """
@@ -84,11 +123,15 @@ class SagulpaParser(BaseParser, BaseWebBoardParser):
                     job_date = datetime.date(year, month, day)
                 else:
                     job_date = datetime.date.today()
+                
+                # Extract closing date
+                closing_date = self._extract_closing_date(li_text)
                     
                 active_jobs.append({
                     "title": title_text,
                     "url": detail_url,
-                    "date": job_date
+                    "date": job_date,
+                    "closing_date": closing_date
                 })
                 
         return active_jobs
@@ -140,9 +183,14 @@ class SagulpaParser(BaseParser, BaseWebBoardParser):
 
         active_jobs = self.parse_list(list_html)
         
-        # Filter by publication date if specified
+        # Filter by closing date boundary if target_date is specified.
+        # Collect active listings where target_date <= closing_date.
+        # Default to keeping the listing if closing_date is not found or is in an unparseable format.
         if target_date is not None:
-            active_jobs = [job for job in active_jobs if job["date"] == target_date]
+            active_jobs = [
+                job for job in active_jobs
+                if job.get("closing_date") is None or target_date <= job["closing_date"]
+            ]
             
         parsed_pages: List[BOPage] = []
 

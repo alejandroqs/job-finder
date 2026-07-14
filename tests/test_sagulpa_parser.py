@@ -31,6 +31,14 @@ def sagulpa_detail_html_path() -> Path:
         pytest.fail(f"Fixture not found at {path}")
     return path
 
+@pytest.fixture
+def sagulpa_detail_2_html_path() -> Path:
+    """Fixture that returns the path to the offline Sagulpa detail page 2 HTML fixture."""
+    path = Path(__file__).parent / "fixtures" / "sagulpa_pagina_oferta_2.html"
+    if not path.exists():
+        pytest.fail(f"Fixture not found at {path}")
+    return path
+
 
 def test_sagulpa_parser_list_extraction(sagulpa_list_html_path):
     """
@@ -147,3 +155,52 @@ def test_sagulpa_fetcher_list_and_detail_mock(sagulpa_list_html_path, sagulpa_de
     assert bo_page.detected_organism == "SAGULPA"
     assert bo_page.section == "Ofertas de Empleo"
     assert "Técnico/a Especialista" in bo_page.text
+
+def test_sagulpa_data_ai_job_detection(sagulpa_list_html_path, sagulpa_detail_2_html_path):
+    """
+    Verifies that the parser extracts and filters data/AI jobs based on closing date boundary
+    and that KeywordFilter successfully matches it as a candidate.
+    """
+    with open(sagulpa_list_html_path, "r", encoding="utf-8") as f:
+        list_html = f.read()
+
+    with open(sagulpa_detail_2_html_path, "r", encoding="utf-8") as f:
+        detail_html = f.read()
+
+    class MockDataAIFetcher(BaseFetcher):
+        def __init__(self):
+            self.detail_calls = []
+
+        def fetch(self, target_date):
+            return io.BytesIO(list_html.encode("utf-8"))
+
+        def fetch_list(self) -> str:
+            return list_html
+
+        def fetch_detail(self, url: str) -> str:
+            self.detail_calls.append(url)
+            return detail_html
+
+    fetcher = MockDataAIFetcher()
+    parser = SagulpaParser(fetcher=fetcher)
+
+    # The deadline for "Especialista en Ingeniería de Datos..." is 13/07/2026.
+    # Set the target_date (current execution date) to 08/07/2026, which is before the deadline.
+    target_date = datetime.date(2026, 7, 8)
+    pages = parser.parse(io.BytesIO(list_html.encode("utf-8")), target_date=target_date)
+
+    # Since the execution date is 08/07/2026:
+    # 1. "Especialista en Ingeniería de Datos..." (deadline 13/07/2026) -> 2026-07-08 <= 2026-07-13: YES, active.
+    # 2. "Operario/a de Movilidad..." (deadline 28/06/2026) -> 2026-07-08 <= 2026-06-28: NO, filtered out.
+    # 3. "BOLSA DE EMPLEO DE OPERARI@..." (deadline 13/05/2019) -> 2026-07-08 <= 2019-05-13: NO, filtered out.
+    # So we expect exactly 1 page to be returned.
+    assert len(pages) == 1
+    assert pages[0].source == "SAGULPA"
+    assert "Especialista en Ingeniería de Datos e Inteligencia Artificial" in pages[0].text
+
+    # Verify that KeywordFilter successfully detects this page as an IT job opportunity
+    kf = KeywordFilter()
+    matches = kf.search_page(pages[0])
+    assert len(matches) == 1
+    assert matches[0].organism == "SAGULPA"
+    assert any("inteligencia" in k or "ingenier" in k for k in matches[0].matched_keywords)

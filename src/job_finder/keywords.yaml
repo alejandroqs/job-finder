@@ -13,6 +13,18 @@ it_keywords:
   - "ciberseguridad"
   - "tecnolog[ií]as?\\s+(?:de\\s+la\\s+)?informaci[oó]n"
   - "auxiliar\\s+t[eé]cnico\\s+inform[aá]tico"
+  - "inteligencia\\s+artificial"
+  - "\\bia\\b"
+  - "ingenier[ií]a?\\s+de\\s+datos"
+  - "ciencia\\s+de\\s+datos"
+  - "cient[ií]fico[as]?\\s+de\\s+datos"
+  - "analista\\s+de\\s+datos"
+  - "administrador[as]?\\s+de\\s+bases?\\s+de\\s+datos"
+  - "\\bdata\\s+(?:engineer|scientist|analyst|architecture|lake|warehouse)\\b"
+  - "big\\s+data"
+  - "machine\\s+learning"
+  - "aprendizaje\\s+autom[aá]tico"
+  - "deep\\s+learning"
 
 # Public contest / employment anchors (case-insensitive)
 # The text block must contain at least one of these to be flagged (prevents false positives)

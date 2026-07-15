@@ -43,7 +43,7 @@ def test_aena_parser_list_extraction(aena_list_html_path):
     with open(aena_list_html_path, "r", encoding="utf-8") as f:
         list_html = f.read()
 
-    active_jobs = parser.parse_list(list_html)
+    active_jobs = parser.parse_list(list_html, target_date=datetime.date(2000, 1, 1))
 
     # In our aena_ofertas_empleo.html fixture:
     # 11 entries are present, but 5 are rejected by the fast-title filter:
@@ -66,6 +66,21 @@ def test_aena_parser_list_extraction(aena_list_html_path):
     assert not any("FORMATIV" in t for t in titles)
     assert not any("MANTENIMIENTO" in t for t in titles)
 
+
+def test_aena_parser_expiration_filter(aena_list_html_path):
+    """
+    Verifies that the AenaParser correctly filters out expired job openings.
+    """
+    parser = AenaParser()
+    with open(aena_list_html_path, "r", encoding="utf-8") as f:
+        list_html = f.read()
+
+    # The fixture has jobs with closing dates around 2026-07-14.
+    # If we set the target_date to 2026-07-15, all of them should be filtered out.
+    active_jobs = parser.parse_list(list_html, target_date=datetime.date(2026, 7, 15))
+    
+    # We expect 0 job entries to remain.
+    assert len(active_jobs) == 0
 
 def test_aena_parser_detail_parsing(aena_detail_html_path):
     """

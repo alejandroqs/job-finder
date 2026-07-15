@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
-from typing import Union, List
+from typing import Union, List, Optional
 
 @dataclass
 class ParsedAnnouncement:
@@ -92,7 +92,7 @@ class BaseWebBoardParser(ABC):
     """Abstract Base Class for parsing HTML-based corporate job boards."""
     
     @abstractmethod
-    def parse_list(self, list_html: str) -> List[dict]:
+    def parse_list(self, list_html: str, target_date: Optional[date] = None) -> List[dict]:
         """
         Parses the main list HTML, filtering out closed/inactive processes.
         

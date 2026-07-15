@@ -30,7 +30,7 @@ class AenaParser(BaseParser, BaseWebBoardParser):
         else:
             self.keyword_filter = keyword_filter
 
-    def parse_list(self, list_html: str) -> List[dict]:
+    def parse_list(self, list_html: str, target_date: Optional[datetime.date] = None) -> List[dict]:
         """
         Parses the main list HTML, extracting all active job openings.
         Filters out jobs using the KeywordFilter's fast title rejection rules.
@@ -59,10 +59,16 @@ class AenaParser(BaseParser, BaseWebBoardParser):
                     
             closing_date = None
             if date_text:
-                m = re.search(r"(\d{2})/(\d{2})/(\d{4})", date_text)
-                if m:
-                    day, month, year = map(int, m.groups())
-                    closing_date = datetime.date(year, month, day)
+                try:
+                    closing_date = datetime.datetime.strptime(date_text, "%d/%m/%Y").date()
+                except ValueError:
+                    print(f"      ⚠️ Warning: Failed to parse date '{date_text}' for job '{title}'. Defaulting to keep.")
+            
+            if closing_date:
+                baseline = target_date if target_date is not None else datetime.date.today()
+                if closing_date < baseline:
+                    print(f"      ⚠️ Job expired. Closing date {closing_date.strftime('%d/%m/%Y')} is before baseline {baseline.strftime('%d/%m/%Y')}: {title}")
+                    continue
             
             # Find detail link: in the following div.td3 -> a.azul.botonAvisos
             detail_url = ""
@@ -137,14 +143,7 @@ class AenaParser(BaseParser, BaseWebBoardParser):
                 except UnicodeDecodeError:
                     list_html = list_html.decode("iso-8859-1")
 
-        active_jobs = self.parse_list(list_html)
-
-        # Apply target_date boundary logic if specified
-        if target_date is not None:
-            active_jobs = [
-                job for job in active_jobs
-                if job.get("closing_date") is None or target_date <= job["closing_date"]
-            ]
+        active_jobs = self.parse_list(list_html, target_date)
 
         parsed_pages: List[BOPage] = []
 

@@ -260,6 +260,11 @@ To successfully operate under the Google AI Studio free tier limits:
   - **Relative Rejection**: Skips the job if a relative rejection pattern matches (e.g. `mantenimiento` or `bomber[oa]s?`) **unless** a positive IT keyword is also present in the title (e.g., `"TÉCNICO MANTENIMIENTO SISTEMAS INFORMÁTICOS"` is kept because `"INFORMÁTICOS"` overrides `"mantenimiento"`).
 * **Integration**: Call `should_reject_title` inside the list parser loop (`parse_list`) and immediately log a console warning (`⚠️ Title rejected by fast-filter: [Title]`) to skip detail extraction entirely.
 
+### 7. List-Level Expiration Filter (Hard Expiration)
+* **Historical Listings**: The Aena job list contains historical jobs that are already closed. To avoid processing expired job postings, a hard expiration filter is enforced at the list level (`parse_list`).
+* **Date Parsing**: The `Fecha fin inscripción` date is extracted and parsed using `datetime.datetime.strptime(date_text, "%d/%m/%Y").date()`. If parsing fails, the system fails open (keeps the job) and logs a warning.
+* **Expiration Logic**: If the target date is strictly after the job's closing date (i.e. `closing_date < target_date` or `closing_date < today`), the job is dropped immediately to save downstream detail processing overhead.
+
 ---
 
 ## 🏗️ Strict Deployment Architecture & Constraints

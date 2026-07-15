@@ -24,6 +24,10 @@ class KeywordFilter:
         self.raw_it_keywords: List[str] = []
         self.raw_anchors: List[str] = []
         self.raw_exclusions: List[str] = []
+        self.raw_title_reject_absolute: List[str] = []
+        self.raw_title_reject_relative: List[str] = []
+        self.reject_absolute_patterns: List[re.Pattern] = []
+        self.reject_relative_patterns: List[re.Pattern] = []
         
         # English ESCO/EuroVoc IT Keyword dictionary for EU job boards
         self.raw_eu_it_keywords = [
@@ -94,12 +98,22 @@ class KeywordFilter:
                 r"incidencias\s+inform[aá]ticas?",
                 r"soportes?\s+inform[aá]ticos?"
             ]
+            self.raw_title_reject_absolute = [
+                r"formativ[oa]s?",
+                r"formativ\."
+            ]
+            self.raw_title_reject_relative = [
+                "mantenimiento",
+                "bomber[oa]s?"
+            ]
         else:
             with open(self.config_path, "r", encoding="utf-8") as f:
                 config = yaml.safe_load(f)
                 self.raw_it_keywords = config.get("it_keywords", [])
                 self.raw_anchors = config.get("contest_anchors", [])
                 self.raw_exclusions = config.get("boilerplate_exclusions", [])
+                self.raw_title_reject_absolute = config.get("title_reject_absolute", [])
+                self.raw_title_reject_relative = config.get("title_reject_relative", [])
 
         # Compile accent-stripped versions of patterns for matching against accent-stripped text
         self.it_patterns = [
@@ -110,6 +124,12 @@ class KeywordFilter:
         ]
         self.exclusion_patterns = [
             re.compile(strip_accents(pat), re.IGNORECASE) for pat in self.raw_exclusions
+        ]
+        self.reject_absolute_patterns = [
+            re.compile(strip_accents(pat), re.IGNORECASE) for pat in self.raw_title_reject_absolute
+        ]
+        self.reject_relative_patterns = [
+            re.compile(strip_accents(pat), re.IGNORECASE) for pat in self.raw_title_reject_relative
         ]
 
     def search_page(self, page: BOPage) -> List[ParsedAnnouncement]:
@@ -187,3 +207,40 @@ class KeywordFilter:
             ))
             
         return announcements
+
+    def should_reject_title(self, title: str) -> bool:
+        """
+        Determines if a job title should be rejected early to avoid I/O overhead.
+        
+        Rules:
+        1. Reject if any pattern in title_reject_absolute matches.
+        2. Reject if any pattern in title_reject_relative matches AND no pattern in it_keywords matches.
+        """
+        if not title:
+            return False
+            
+        stripped_title = strip_accents(title)
+        
+        # Rule 1: Absolute rejection
+        for pattern in self.reject_absolute_patterns:
+            if pattern.search(stripped_title):
+                return True
+                
+        # Rule 2: Relative rejection
+        has_relative_match = False
+        for pattern in self.reject_relative_patterns:
+            if pattern.search(stripped_title):
+                has_relative_match = True
+                break
+                
+        if has_relative_match:
+            # Check if any IT keyword matches to override relative rejection
+            has_it_override = False
+            for pattern in self.it_patterns:
+                if pattern.search(stripped_title):
+                    has_it_override = True
+                    break
+            if not has_it_override:
+                return True
+                
+        return False

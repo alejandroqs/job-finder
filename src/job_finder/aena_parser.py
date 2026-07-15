@@ -3,7 +3,7 @@ import re
 import datetime
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Union, List, Optional
+from typing import Union, List, Optional, Any
 from bs4 import BeautifulSoup
 
 from job_finder.interfaces import BaseParser, BaseWebBoardParser, BaseWebBoardFetcher, BOPage
@@ -15,19 +15,25 @@ class AenaParser(BaseParser, BaseWebBoardParser):
     Supports standard BaseParser and specialized BaseWebBoardParser interfaces.
     """
 
-    def __init__(self, fetcher: Optional[BaseWebBoardFetcher] = None):
+    def __init__(self, fetcher: Optional[BaseWebBoardFetcher] = None, keyword_filter: Optional[Any] = None):
         """
         Initialises the AenaParser.
         
         Args:
             fetcher: Optional fetcher dependency to fetch detail pages.
+            keyword_filter: Optional keyword filter dependency.
         """
         self.fetcher = fetcher
+        if keyword_filter is None:
+            from job_finder.keyword_filter import KeywordFilter
+            self.keyword_filter = KeywordFilter()
+        else:
+            self.keyword_filter = keyword_filter
 
     def parse_list(self, list_html: str) -> List[dict]:
         """
         Parses the main list HTML, extracting all active job openings.
-        We do not filter by title keywords here to allow general title roles.
+        Filters out jobs using the KeywordFilter's fast title rejection rules.
         """
         soup = BeautifulSoup(list_html, "html.parser")
         active_jobs = []
@@ -38,6 +44,10 @@ class AenaParser(BaseParser, BaseWebBoardParser):
             if not h3:
                 continue
             title = h3.get_text(strip=True)
+            
+            if self.keyword_filter.should_reject_title(title):
+                print(f"      ⚠️ Title rejected by fast-filter: {title}")
+                continue
             
             # Extract closing date - search for "Fecha fin" to avoid accent issues
             date_text = None
@@ -80,18 +90,25 @@ class AenaParser(BaseParser, BaseWebBoardParser):
 
     def parse_detail(self, detail_html: str) -> List[str]:
         """
-        Parses the detail page HTML to find the bases PDF URL and any supplemental documents.
-        Returns a list of all PDF URLs found.
+        Parses the detail page HTML to find the bases and requirements PDF URLs.
+        Returns a list of targeted PDF URLs found.
         """
         soup = BeautifulSoup(detail_html, "html.parser")
         pdf_urls = []
         seen = set()
+        
+        target_keywords = ["base", "bases", "requisito", "requisitos"]
+        
         for a in soup.find_all("a"):
             href = a.get("href", "")
             if href and ("documentos?get" in href or ("PFSrv" in href and "docId=" in href)):
-                if href not in seen:
-                    pdf_urls.append(href)
-                    seen.add(href)
+                inner_text = a.get_text(strip=True).lower()
+                title_attr = a.get("title", "").lower()
+                
+                if any(kw in inner_text or kw in title_attr for kw in target_keywords):
+                    if href not in seen:
+                        pdf_urls.append(href)
+                        seen.add(href)
         return pdf_urls
 
     def parse(self, source: Union[Path, str, io.BytesIO], target_date: Optional[datetime.date] = None) -> List[BOPage]:
@@ -143,7 +160,8 @@ class AenaParser(BaseParser, BaseWebBoardParser):
                     # 2. Parse detail page to find PDF URL
                     pdf_urls = self.parse_detail(detail_html)
                     if not pdf_urls:
-                        raise ValueError("No PDF links found on detail page.")
+                        print(f"      ⚠️ No target PDFs (Bases/Requisitos) found for job: {job['title']} - Skipping.")
+                        return []
                     
                     print(f"      📄 Found {len(pdf_urls)} documents for {job['title']}. Downloading and parsing...")
                     

@@ -242,8 +242,9 @@ To successfully operate under the Google AI Studio free tier limits:
 ### 3. Collision-free Ephemeral PDF Buffer
 * To process jobs concurrently via `ThreadPoolExecutor` while respecting Lambda's read-only file system, downloaded PDFs must be stored to unique files in `/tmp` using the `get_temp_path(f"aena_temp_{uuid}.pdf")` pattern and deleted immediately in a `finally` block using `Path.unlink(missing_ok=True)`.
 
-### 4. Multi-Document Deep-Scanning & 503 Error Resilience
-* **Comprehensive Ingestion**: Instead of stopping at the first `Bases` document, the scraper extracts and parses *all* self-authenticating SAP Content Server PDFs found on a job's detail page. This guarantees that any IT keywords or deadline extensions mentioned in addendums/resolutions are successfully ingested.
+### 4. Targeted PDF Extraction & 503 Error Resilience
+* **Selective Ingestion to Reduce Latency**: Aena job pages often contain dozens of irrelevant PDFs (administrative lists, syllabuses, etc.). To drastically reduce I/O overhead and memory consumption, the parser filters `<a>` tags by their inner text and `title` attributes. It selectively extracts only those documents containing target keywords (`base`, `bases`, `requisito`, `requisitos`), dropping the rest.
+* **Graceful Degradation**: If no PDFs match the keywords, the candidate is cleanly skipped and a warning is logged without raising a breaking exception, keeping the concurrent pipeline intact.
 * **Granular 503 Failsafes**: The Aena website frequently throws `503 Service Unavailable` errors. The `ThreadPoolExecutor` is protected by bulletproof nested exception handling:
   * If an individual PDF fails to download (503), the thread logs a warning, cleans up the temp file, and continues downloading the next PDF for that job.
   * If the detail page fails entirely, the outer `try...except` catches the error, generates a fallback `BOPage` (containing just the title and the list-level closing date), and returns it. This ensures the thread never crashes, and the scanner proceeds seamlessly to the next job.
@@ -251,6 +252,13 @@ To successfully operate under the Google AI Studio free tier limits:
 ### 5. Dynamic Console Buffering for Single vs. Multi Scans
 * `ThreadLocalStream` is used to capture background thread `print()` statements and prevent overlapping text during parallel multi-source runs.
 * **Single-Source Unbuffering**: When a single source is run (e.g. `--source AENA`), the `ThreadLocalStream` wrapper is bypassed in `main.py`. This ensures long-running tasks like AENA's 100+ PDF downloads can stream real-time progress (`⏳ Deep-scanning Aena job...`) directly to the console so the user knows the application is not frozen.
+
+### 6. Fail-Fast List-Level Title Rejection
+* **Preventing I/O Bottlenecks**: Aena and other legacy portal scans suffer massive performance overheads when downloading attachments for clearly irrelevant roles. To mitigate this, a list-level gatekeeper is integrated via `KeywordFilter.should_reject_title(title)`.
+* **Rejection Categories**:
+  - **Absolute Rejection**: Immediately skips the job if an absolute rejection pattern matches (e.g. `formativ[oa]s?` or `formativ\.` for student internships).
+  - **Relative Rejection**: Skips the job if a relative rejection pattern matches (e.g. `mantenimiento` or `bomber[oa]s?`) **unless** a positive IT keyword is also present in the title (e.g., `"TÉCNICO MANTENIMIENTO SISTEMAS INFORMÁTICOS"` is kept because `"INFORMÁTICOS"` overrides `"mantenimiento"`).
+* **Integration**: Call `should_reject_title` inside the list parser loop (`parse_list`) and immediately log a console warning (`⚠️ Title rejected by fast-filter: [Title]`) to skip detail extraction entirely.
 
 ---
 

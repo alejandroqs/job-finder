@@ -53,3 +53,14 @@ boilerplate_exclusions:
   - "incidencias\\s+inform[aá]ticas?"
   - "soportes?\\s+inform[aá]ticos?"
 
+# Absolute rejection keywords (case-insensitive). If found in the title, the job is immediately skipped.
+title_reject_absolute:
+  - "formativ[oa]s?"
+  - "formativ\\."
+
+# Relative rejection keywords (case-insensitive). If found in the title, the job is skipped UNLESS an it_keyword is also present in the title.
+title_reject_relative:
+  - "mantenimiento"
+  - "bomber[oa]s?"
+
+

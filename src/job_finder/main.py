@@ -301,7 +301,7 @@ def _scan_single_source(
         elif src == "AENA":
             print(f"📅 Target Date: {resolved_date.strftime('%Y-%m-%d') if (target_date or is_lambda) else 'ALL ACTIVE OPENINGS'}")
             fetcher = AenaFetcher()
-            aena_parser = AenaParser(fetcher=fetcher)
+            aena_parser = AenaParser(fetcher=fetcher, keyword_filter=kf)
             
             try:
                 print("🌐 Connecting to Aena Employment Portal...")
@@ -490,7 +490,7 @@ def run_scan(
             elif source_type == "SAGULPA":
                 parser_inst = SagulpaParser()
             elif source_type == "AENA":
-                parser_inst = AenaParser()
+                parser_inst = AenaParser(keyword_filter=kf)
             elif source_type == "EPSO":
                 parser_inst = EPSOParser()
             elif source_type == "EURES":

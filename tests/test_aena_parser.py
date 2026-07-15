@@ -46,8 +46,12 @@ def test_aena_parser_list_extraction(aena_list_html_path):
     active_jobs = parser.parse_list(list_html)
 
     # In our aena_ofertas_empleo.html fixture:
-    # We expect 11 job entries
-    assert len(active_jobs) == 11
+    # 11 entries are present, but 5 are rejected by the fast-title filter:
+    # - 2 formativo (Absolute)
+    # - 2 mantenimiento (Relative)
+    # - 1 bombero/a (Relative)
+    # We expect 6 job entries to remain.
+    assert len(active_jobs) == 6
 
     # First entry verification
     job = active_jobs[0]
@@ -55,6 +59,12 @@ def test_aena_parser_list_extraction(aena_list_html_path):
     assert job["url"] == "PFSrv?accion=avisos&codigo=20260630&titulo=24 PLAZAS TITULADOS/AS UNIVERSITARIOS/AS"
     assert isinstance(job["closing_date"], datetime.date)
     assert job["closing_date"] == datetime.date(2026, 7, 14)
+
+    # Verify that skipped titles are not present
+    titles = [j["title"] for j in active_jobs]
+    assert not any("BOMBERO" in t for t in titles)
+    assert not any("FORMATIV" in t for t in titles)
+    assert not any("MANTENIMIENTO" in t for t in titles)
 
 
 def test_aena_parser_detail_parsing(aena_detail_html_path):
@@ -98,13 +108,13 @@ def test_aena_parser_online_simulation(aena_list_html_path, aena_detail_html_pat
     target_date = datetime.date(2026, 7, 14)
     pages = parser.parse(io.BytesIO(list_html.encode("utf-8")), target_date=target_date)
 
-    # The mock fetcher is called for active jobs (2 jobs since target_date <= closing_date)
+    # The mock fetcher is called for active jobs (1 job left since the other is rejected as Formativo)
     # Each PDF parses to several pages. Let's assert we get BOPage objects.
     assert len(pages) > 0
-    assert mock_fetcher.fetch_detail.call_count == 2
+    assert mock_fetcher.fetch_detail.call_count == 1
     
-    # 10 PDFs are found on the detail page, so 2 jobs * 10 PDFs = 20 fetch_pdf calls
-    assert mock_fetcher.fetch_pdf.call_count == 20
+    # 2 targeted PDFs (Bases, Requisitos) are found on the detail page, so 1 job * 2 PDFs = 2 fetch_pdf calls
+    assert mock_fetcher.fetch_pdf.call_count == 2
 
     # Check first page properties
     first_page = pages[0]

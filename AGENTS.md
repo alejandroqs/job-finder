@@ -278,3 +278,16 @@ Every agent/assistant working on this repository must strictly adhere to the fol
 5. **Gitignore Policy**: Ensure that local build targets (`dist_lambda/`) and validation results (`response.json`) are kept strictly out of git version control to prevent repository bloat and credential/artifact leaks (already configured in `.gitignore`).
 
 
+---
+
+## 🗺️ Domain Insights: HTML Exporter & CLI Output Routing
+
+### 1. Decoupled HTML Exporter (`html_exporter.py`)
+* **Standalone Self-Contained Document**: Generates a single HTML file with dark mode CSS injected directly into the `<style>` tag in the `<head>`. Zero external CSS dependencies or CDN links are used.
+* **Modern Dark Mode Styling**: Features dark gray background theme (`#121214`), elevated card containers (`#1e1e24`), crisp typography, keyword chips (`#818cf8`), and accessible link accents (`#38bdf8`).
+* **Zero Interactivity**: Designed strictly for static reading with vertical scrolling (linear reader layout). All content text is sanitized via `html.escape()`. Standard `<a>` tags link to official bulletins with `target="_blank" rel="noopener noreferrer"`.
+* **File Handling**: Uses `"w"` mode with UTF-8 encoding to overwrite destination files predictably.
+
+### 2. Dual CLI Export Control (`main.py`)
+* Users can specify `--format html` or `--format markdown` (defaulting to `markdown`).
+* Automatic Extension Override: If `--output` path ends in `.html` (e.g. `--output report.html`), the format dynamically defaults to HTML.

@@ -662,7 +662,13 @@ def main() -> None:
         "--output",
         type=Path,
         default=Path("findings.md"),
-        help="Path to the markdown file where findings will be saved (overwritten on each run)"
+        help="Path to the file where findings will be saved (overwritten on each run)"
+    )
+    parser.add_argument(
+        "--format",
+        choices=["markdown", "html"],
+        default="markdown",
+        help="Output format for saved findings (markdown or html)"
     )
     
     args = parser.parse_args()
@@ -685,7 +691,15 @@ def main() -> None:
     print("  SCAN COMPLETED - RESULTS SUMMARY  ".center(60, "═"))
     print("═" * 60)
     
-    save_markdown_findings(all_announcements, args.output)
+    output_format = args.format.lower()
+    if args.output.suffix.lower() == ".html":
+        output_format = "html"
+
+    if output_format == "html":
+        from job_finder.html_exporter import save_html_findings
+        save_html_findings(all_announcements, args.output)
+    else:
+        save_markdown_findings(all_announcements, args.output)
 
     # Print final aggregated findings to console
     if all_announcements:

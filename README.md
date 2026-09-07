@@ -1,20 +1,24 @@
-# Boletín Oficial Job Finder CLI Monitor (BOP, BOC & BOE)
+# Job Finder: IT Vacancy Monitor for Official Sources
 
 [![Python Version](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
-[![Testing](https://img.shields.io/badge/tests-24%20passed-green.svg)](https://pytest.org/)
+[![Testing](https://img.shields.io/badge/tests-pytest-green.svg)](https://pytest.org/)
 [![License](https://img.shields.io/badge/license-MIT-lightgrey.svg)](LICENSE)
 
-An enterprise-grade, clean-architecture command-line tool that monitors the **Official Gazette of the Province of Las Palmas (BOP Las Palmas)**, the **Official Gazette of the Canary Islands (BOC)**, the **Official Gazette of the Spanish State (BOE)**, and the **Aena Employment Portal** to automatically identify and extract civil service job openings in the Information Technology and Software Engineering sectors across the entire Spanish territory.
+An enterprise-grade, clean-architecture command-line tool and AWS Lambda workload that monitors BOP Las Palmas, BOC, BOE, Sagulpa, Aena, EPSO, EURES, and eu-LISA to identify Information Technology and Software Engineering opportunities.
 
 Because official gazettes publish raw, unstructured daily gazettes (monolithic PDF files for BOP, HTML/RSS structures for BOC, and custom Open Data API XML streams for BOE) without clean public APIs, this tool implements a custom high-performance streaming, parsing, and Natural Language Processing (NLP) regex pipeline to isolate and report high-value career opportunities.
 
 > **Project Evolution**: Originally launched as `bop_finder` (focusing solely on the BOP Las Palmas gazette), the project was globally renamed to `job-finder` to accurately reflect its expanded multi-source capabilities across Spanish and European Union databases.
 
+## Documentation
+
+The README is the human-facing introduction. Agent instructions and task-specific context are maintained in [AGENTS.md](AGENTS.md) and the [agent documentation index](docs/index.md). The index routes source work, Lambda operations, testing, configuration, and documentation maintenance to focused Markdown files.
+
 ---
 
 ## 🏗️ Architectural Blueprint
 
-The application is engineered strictly around **Clean Architecture** and the **SOLID principles**, isolating external HTTP dependencies and binary parser implementations behind robust abstract interfaces.
+The application is engineered strictly around **Clean Architecture** and the **SOLID principles**, isolating external HTTP dependencies and binary parser implementations behind abstract interfaces. The diagram below shows the representative core path; the complete source inventory is maintained in [docs/sources/index.md](docs/sources/index.md).
 
 ```mermaid
 graph TD
@@ -57,12 +61,12 @@ graph TD
 * **Dependency Inversion**: High-level orchestrators interface exclusively with abstract classes (`BaseFetcher`, `BaseParser`), facilitating seamless transitions to alternative engines without modifying core orchestration logic.
 * **Parallel Source Fetching & Dynamic Buffering**: Utilizes `ThreadPoolExecutor` in the main orchestrator to scan all configured sources concurrently, drastically reducing overall execution time. Ensures console stability via a custom atomic `ThreadLocalStream` buffer to prevent interleaved logs. When running a single source (e.g. Aena), the buffer is dynamically bypassed to stream real-time progress to the terminal.
 * **Deep Multi-Document Ingestion & Targeted Extraction**: Legacy SSR web apps (like Aena) often hide IT job roles or deadline extensions deep inside scattered supplementary PDF annexes. To minimize I/O overhead, the scraper selectively downloads only highly relevant PDFs (e.g. bases, requisitos) using targeted keyword matching. It processes these documents concurrently, wrapping them in granular exception handlers. This ensures a single 503 Server Error on a broken PDF never crashes the thread; it simply falls back to keyword-scanning the job title and safely continues.
-* **Fail-Fast List-Level Title Rejection**: Evaluates job titles early at the list level (before hitting detail pages or triggering attachment downloads) to filter out clearly irrelevant roles. It divides rejection rules into *Absolute Rejections* (e.g., formativo/student internships) and *Relative Rejections* (e.g., mantenimiento, bomberos) which are skipped unless overridden by a positive IT keyword matching inside the title (e.g. "Técnico Mantenimiento de Sistemas Informáticos"). This drops I/O overhead by up to 50% on legacy bulletin scans.
+* **Fail-Fast List-Level Title Rejection**: Evaluates job titles early at the list level (before hitting detail pages or triggering attachment downloads) to filter out clearly irrelevant roles. It divides rejection rules into *Absolute Rejections* (e.g., formativo/student internships) and *Relative Rejections* (e.g., mantenimiento, bomberos) which are skipped unless overridden by a positive IT keyword matching inside the title (e.g. "Técnico Mantenimiento de Sistemas Informáticos").
 * **Fail-Fast Hard Expiration Filtering**: Evaluates job closing dates directly from the main list. Any role whose application window has closed relative to the target baseline date is dropped instantly, maximizing execution speed by completely bypassing historical data.
-* **Batched AI Validation**: Employs parallel chunking (batches of 10) to validate job candidates via Gemini Flash 3.5. This drastically cuts API latency and network round-trips while managing rate limits via exponential backoff (429/503 HTTP codes) and enforcing deterministic JSON structured outputs.
+* **Batched AI Validation**: Employs parallel chunking (batches of 10) to validate job candidates via Gemini Flash 3.5. It retries selected 429/503 failures with fixed waits and enforces deterministic JSON structured outputs.
 * **Symmetric Merging & Date Filtering**: The BOC integration merges multiple RSS feeds concurrently and applies precise target-date filtering in the fetch phase, converting unstructured feed items into clean in-memory XML buffers.
 * **Stateful Stream Processing (Sticky Headers)**: BOP gazettes contain unstructured, multi-page layout flows. The PDF parser utilizes a stateful sticky-header pattern to associate announcements with their respective municipal departments ("organisms") across page breaks.
-* **Accent-Insensitive Spanish Search**: Utilizes Unicode NFD normalization and combining-character filtering to achieve 100% robust, accent-insensitive Spanish keyword matching, preventing missing matches due to accent differences (e.g. `informática` vs `informatica`).
+* **Accent-Insensitive Spanish Search**: Utilizes Unicode NFD normalization and combining-character filtering for accent-insensitive Spanish keyword matching (e.g. `informática` and `informatica`).
 * **Two-Step Validation Noise Filtering**: Standard administrative texts are full of false-positive terms (e.g., GDPR "sistemas de datos"). The program runs a two-step validation pipeline:
   1. **Step 1**: Detect target IT root stems.
   2. **Step 2**: Verify the containing block contains employment anchors (e.g., `plaza`, `convocatoria`, `bases`).
@@ -99,7 +103,7 @@ graph TD
 
 The tool exposes two CLI commands: `job-finder` and the newly mapped `bo-finder`.
 
-### 1. Basic Run (Scans Today's BOP, BOC & BOE with Smart Fallback)
+### 1. Basic Run (Scans the selected sources with smart fallback)
 Downloads and processes today's BOP PDF, BOC RSS feeds, and BOE XML sumario, and outputs matches.
 
 **Smart Fallbacks**: If today's gazettes are not yet published or it is a weekend/holiday:
@@ -140,7 +144,7 @@ The tool includes an optional post-filter step that sends matching candidate ann
 
 **High-Performance AI Optimization**:
 * **Parallel Batching**: Submits up to 10 candidates simultaneously per request, keeping context window usage tight and validating large batches rapidly under Lambda timeout limits.
-* **Automatic Retries**: Implements robust exponential backoff on 429 (Too Many Requests) or 503 (Service Unavailable) errors to ensure high availability on the Google AI Studio free tier.
+* **Automatic Retries**: Retries selected 429 (Too Many Requests) and 503 (Service Unavailable) failures with fixed waits; failed validation keeps candidates so the scan can continue.
 * **Structured Output**: Forces typed JSON structures via Pydantic (`JobOfferValidationBatch`) to guarantee deterministic validation output.
 
 #### Setup:
@@ -165,7 +169,7 @@ The tool includes an optional post-filter step that sends matching candidate ann
 
 ## ☁️ Cloud Deployment (AWS Lambda)
 
-The tool has been engineered to run seamlessly as a stateless **AWS Lambda** function while remaining 100% backward-compatible with local terminal execution. Because the project relies on heavy precompiled C-extensions (`pypdfium2`, `cffi`, `google-genai`), native Windows zipping is bypassed. We use a Dockerized AWS SAM Python 3.14 build environment and an S3 bucket pipeline for deployments.
+The tool supports a stateless **AWS Lambda** entry point alongside local terminal execution. Because the project relies on heavy precompiled C-extensions (`pypdfium2`, `cffi`, `google-genai`), native Windows zipping is bypassed. We use a Dockerized AWS SAM Python 3.14 build environment and an S3 bucket pipeline for deployments.
 
 ### Prerequisites
 

@@ -65,7 +65,7 @@ class JobOfferValidationBatch(BaseModel):
 
 
 class GeminiValidator(BaseAIValidator):
-    """Concrete implementation of BaseAIValidator using Gemini Flash 3.5 via API Studio."""
+    """Concrete implementation of BaseAIValidator using Gemini 3.7 Flash via API Studio."""
 
     @staticmethod
     def _candidate_identity(ann: ParsedAnnouncement) -> tuple[str, ...]:
@@ -238,7 +238,7 @@ class GeminiValidator(BaseAIValidator):
         for attempt in range(max_retries):
             try:
                 response = self.client.models.generate_content(
-                    model="gemini-3.5-flash",
+                    model="gemini-3.7-flash",
                     contents=formatted_prompt,
                     config=types.GenerateContentConfig(
                         system_instruction=self.system_prompt,

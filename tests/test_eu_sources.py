@@ -541,6 +541,7 @@ def test_validator_structured_output_config(monkeypatch):
     from job_finder.gemini_validator import JobOfferValidationBatch
     
     captured_configs = []
+    captured_models = []
     
     class MockResponse:
         def __init__(self, text):
@@ -549,6 +550,7 @@ def test_validator_structured_output_config(monkeypatch):
     class MockModels:
         def generate_content(self, model, contents, config):
             captured_configs.append(config)
+            captured_models.append(model)
             return MockResponse('{"results": [{"id": 0, "is_tech_job": true, "job_title": "IT", "organism": "Org", "confidence": "high"}]}')
             
     class MockClient:
@@ -562,6 +564,7 @@ def test_validator_structured_output_config(monkeypatch):
     validator.validate_batch([ann])
     
     assert len(captured_configs) == 1
+    assert captured_models == ["gemini-3.7-flash"]
     config = captured_configs[0]
     
     assert config.response_mime_type == "application/json"

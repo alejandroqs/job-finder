@@ -153,7 +153,7 @@ python -m job_finder.main --config path/to/my_keywords.yaml
 ```
 
 ### 6. Optional Gemini AI Validation Layer
-The tool includes an optional post-filter step that sends matching candidate announcements to Gemini Flash 3.5 (low reasoning) via the Google AI Studio API for a binary relevance check. This filters out complex Spanish bulletin false positives (e.g. administrative assistant or cleaner positions that mention "informática" in submission boilerplate).
+The tool includes an optional post-filter step that sends matching candidate announcements to [Gemini 3.7 Flash](https://ai.google.dev/gemini-api/docs/models/gemini-3.7-flash) (`gemini-3.7-flash`, low reasoning) via the Gemini API for a binary relevance check. This filters out complex Spanish bulletin false positives (e.g. administrative assistant or cleaner positions that mention "informática" in submission boilerplate).
 
 **AI processing details**:
 * **Parallel Batching**: Submits up to 10 candidates per request and processes chunks concurrently.

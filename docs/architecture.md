@@ -31,7 +31,7 @@ flowchart TD
     K --> M[Discord or Telegram notification]
 ```
 
-`run_scan` supports a local-file path as well as live online scans. Local files are classified by extension or signature and routed to one parser. Online sources are selected individually or by groups: `ES` means BOP, BOC, BOE, Sagulpa, and Aena; `EU` means EPSO, EURES, and eu-LISA; `ALL` means all eight sources.
+`run_scan` supports a local-file path as well as live online scans. Local files are classified by extension or signature and routed to one parser. Guaguas detection reads the full HTML file when the filename is not distinctive and delegates recognition to the parser's supported structural container selectors, so a long header or generic employment-page wording does not misclassify a file. Online sources are selected individually or by groups: `ES` means BOP, BOC, BOE, Sagulpa, Guaguas, and Aena; `EU` means EPSO, EURES, and eu-LISA; `ALL` means all nine sources.
 
 When more than one online source is selected, source scans run in a `ThreadPoolExecutor`. `ThreadLocalStream` buffers each worker's output and the main thread prints buffers in source order. A single-source scan leaves output unbuffered so long operations can show progress.
 
@@ -40,6 +40,8 @@ When more than one online source is selected, source scans run in a `ThreadPoolE
 `BOPage` is the normalized raw page or item passed to filtering. `ParsedAnnouncement` is the normalized finding used by exports, AI validation, and notifications. [`interfaces.py`](../src/job_finder/interfaces.py) defines `BaseFetcher`/`BaseParser` for gazettes, `BaseWebBoardFetcher`/`BaseWebBoardParser` for corporate boards, `BaseEUFetcher`/`BaseEUParser` for European sources, and `BaseAIValidator` for optional AI validation. `main.py` instantiates the concrete classes explicitly; it does not depend exclusively on abstract objects.
 
 `KeywordFilter` applies Spanish accent-insensitive IT matching plus employment anchors to Spanish sources. For dedicated EU portals it uses the configured ESCO-style English IT patterns and bypasses Spanish contest anchors. It also removes configured Spanish boilerplate and provides early title rejection for Aena.
+
+Guaguas is a list-only web-board integration: `GuaguasFetcher` retrieves one HTML document and `GuaguasParser` converts each admitted card directly into one `BOPage`. Main application metadata and bases links are bounded structurally so the `Avisos` section cannot supply application dates, vacancies, positions, or record URLs. Bases links are preserved as record URLs, while PDF contents and the notices history remain outside the normalized text.
 
 `GeminiValidator` is optional. It deduplicates candidates by URL, sends unique candidates in batches of ten, parses structured JSON, and keeps candidates when the SDK, network, or response validation fails. The exact model and retry delays are implementation details in `gemini_validator.py`; do not describe them as exponential unless the code changes.
 

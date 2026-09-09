@@ -24,6 +24,10 @@ from job_finder.boe_parser import BOEParser
 from job_finder.sagulpa_fetcher import SagulpaFetcher
 from job_finder.sagulpa_parser import SagulpaParser
 
+# Guaguas Components
+from job_finder.guaguas_fetcher import GuaguasFetcher
+from job_finder.guaguas_parser import GuaguasParser
+
 # Aena Components
 from job_finder.aena_fetcher import AenaFetcher
 from job_finder.aena_parser import AenaParser
@@ -140,6 +144,8 @@ def print_source_header(source_name: str) -> None:
         title = "BOE - BOLETÍN OFICIAL DEL ESTADO"
     elif source_name == "SAGULPA":
         title = "SAGULPA - MUNICIPAL JOB BOARD"
+    elif source_name == "GUAGUAS":
+        title = "GUAGUAS - MUNICIPAL JOB BOARD"
     elif source_name == "EPSO":
         title = "EPSO - EUROPEAN UNION OPEN DATA"
     elif source_name == "EURES":
@@ -151,6 +157,11 @@ def print_source_header(source_name: str) -> None:
     print("\n" + "╔" + "═" * 58 + "╗")
     print(f"║{title.center(58)}║")
     print("╚" + "═" * 58 + "╝")
+
+
+def _is_guaguas_html(html: str) -> bool:
+    """Recognize Guaguas HTML using the same structural containers as its parser."""
+    return GuaguasParser.has_supported_container(html)
 
 
 def _scan_single_source(
@@ -285,6 +296,19 @@ def _scan_single_source(
             except Exception as e:
                 print(f"❌ Unexpected BOE error: {e}", file=sys.stderr)
         
+        elif src == "GUAGUAS":
+            print(f"📅 Target Date: {resolved_date.strftime('%Y-%m-%d')}")
+            fetcher = GuaguasFetcher()
+            guaguas_parser = GuaguasParser()
+
+            try:
+                print("🌐 Connecting to www.guaguas.com employment board...")
+                list_stream = fetcher.fetch(resolved_date)
+                print("📥 Download complete! Parsing Guaguas employment cards...")
+                pages = guaguas_parser.parse(list_stream, target_date=resolved_date)
+            except Exception as e:
+                print(f"❌ Guaguas download/parse failed: {e}", file=sys.stderr)
+
         elif src == "SAGULPA":
             print(f"📅 Target Date: {resolved_date.strftime('%Y-%m-%d') if (target_date or is_lambda) else 'ALL ACTIVE OPENINGS'}")
             fetcher = SagulpaFetcher()
@@ -424,18 +448,24 @@ def run_scan(
             except Exception:
                 source_type = "BOC"
         elif suffix in (".html", ".htm"):
-            # Distinguish between SAGULPA, EULISA, and AENA
-            if "eulisa" in local_file.name.lower():
+            # Distinguish between Guaguas, SAGULPA, EULISA, and AENA.
+            file_name = local_file.name.lower()
+            if "guaguas" in file_name:
+                source_type = "GUAGUAS"
+            elif "eulisa" in file_name:
                 source_type = "EULISA"
-            elif "aena" in local_file.name.lower():
+            elif "aena" in file_name:
                 source_type = "AENA"
             else:
                 try:
                     with open(local_file, "r", encoding="utf-8", errors="replace") as f:
-                        head = f.read(2000)
-                    if "eulisa" in head.lower():
+                        html = f.read()
+                    html_lower = html.lower()
+                    if _is_guaguas_html(html):
+                        source_type = "GUAGUAS"
+                    elif "eulisa" in html_lower:
                         source_type = "EULISA"
-                    elif "aena" in head.lower():
+                    elif "aena" in html_lower:
                         source_type = "AENA"
                     else:
                         source_type = "SAGULPA"
@@ -454,13 +484,25 @@ def run_scan(
                     source_type = "BOP"
                 elif sig.startswith(b"<?xml") or sig.startswith(b"<rss") or b"<" in sig:
                     with open(local_file, "r", encoding="utf-8", errors="replace") as f:
-                        head = f.read(1000)
-                    if "<rss" in head:
+                        content = f.read()
+                    content_lower = content.lower()
+                    if _is_guaguas_html(content):
+                        source_type = "GUAGUAS"
+                    elif "<rss" in content_lower:
                         source_type = "BOC"
+                    elif "<html" in content_lower or "<!doctype" in content_lower:
+                        if "eulisa" in local_file.name.lower():
+                            source_type = "EULISA"
+                        elif "aena" in local_file.name.lower():
+                            source_type = "AENA"
+                        else:
+                            source_type = "SAGULPA"
                     else:
                         source_type = "BOE"
                 elif sig.startswith(b"<!DO") or sig.startswith(b"<htm") or b"<html" in sig.lower():
-                    if "eulisa" in local_file.name.lower():
+                    if "guaguas" in local_file.name.lower():
+                        source_type = "GUAGUAS"
+                    elif "eulisa" in local_file.name.lower():
                         source_type = "EULISA"
                     elif "aena" in local_file.name.lower():
                         source_type = "AENA"
@@ -487,6 +529,8 @@ def run_scan(
                 parser_inst = BOCParser()
             elif source_type == "BOE":
                 parser_inst = BOEParser()
+            elif source_type == "GUAGUAS":
+                parser_inst = GuaguasParser()
             elif source_type == "SAGULPA":
                 parser_inst = SagulpaParser()
             elif source_type == "AENA":
@@ -516,11 +560,11 @@ def run_scan(
         
         # Decide which sources to run
         if not sources or "ALL" in sources:
-            sources_to_run = ["BOP", "BOC", "BOE", "SAGULPA", "AENA", "EPSO", "EURES", "EULISA"]
+            sources_to_run = ["BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "AENA", "EPSO", "EURES", "EULISA"]
         elif "EU" in sources:
             sources_to_run = ["EPSO", "EURES", "EULISA"]
         elif "ES" in sources:
-            sources_to_run = ["BOP", "BOC", "BOE", "SAGULPA", "AENA"]
+            sources_to_run = ["BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "AENA"]
         else:
             sources_to_run = sources
         
@@ -638,12 +682,12 @@ def main() -> None:
     group.add_argument(
         "--file",
         type=Path,
-        help="Local file path to scan (.pdf for BOP, .xml/.rss for BOC/BOE, .csv for EPSO, .json for EURES, .html for Sagulpa/EULISA)"
+        help="Local file path to scan (.pdf for BOP, .xml/.rss for BOC/BOE, .csv for EPSO, .json for EURES, .html for Guaguas/Sagulpa/Aena/eu-LISA)"
     )
     parser.add_argument(
         "--source",
         "-s",
-        choices=["BOP", "BOC", "BOE", "SAGULPA", "AENA", "EPSO", "EURES", "EULISA", "EU", "ES", "ALL"],
+        choices=["BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "AENA", "EPSO", "EURES", "EULISA", "EU", "ES", "ALL"],
         default="ALL",
         help="Target official gazette source(s) to scan (use 'EU' for European Union, 'ES' for Spanish, or individual source names)"
     )

@@ -24,6 +24,9 @@ The repository uses pytest fixtures and local samples. Do not hard-code a test c
 | `test_boc_parser.py` | RSS section filtering, keyword filtering, URL construction, date filtering, and mocked latest-feed behaviour. |
 | `test_boe_parser.py` | Section and heuristic filtering, XML parsing, API headers, 404 behaviour, fallback probing, and PDF deep-scan paths. |
 | `test_sagulpa_parser.py` | List/detail extraction, active closing-date boundaries, and injected-fetcher behaviour. |
+| `test_guaguas_parser.py` | Label-based card extraction, structural notice exclusion, inclusive application windows, bases-link resolution, deduplication, diagnostics, and Spanish filtering. |
+| `test_guaguas_fetcher.py` | Mocked list/detail requests, explicit timeout, HTTP status checks, URL resolution, and contextual failures. |
+| `test_guaguas_integration.py` | No-network Guaguas pipeline, source groups, structural offline detection beyond a long header, container variants, generic-page rejection, neighbouring-source routing, and `no_ai=True`. |
 | `test_aena_parser.py` | List rejection and expiration, detail/PDF extraction, and injected-fetcher behaviour. |
 | `test_eu_sources.py` | EPSO, EURES, and eu-LISA parsing/filtering plus Gemini validation, retries, structured output, deduplication, and fallback behaviour. |
 | `test_keyword_filter.py` | Early title-rejection rules. |

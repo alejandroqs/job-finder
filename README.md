@@ -3,7 +3,7 @@
 [![Python Version](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 [![Testing](https://img.shields.io/badge/tests-pytest-green.svg)](https://pytest.org/)
 
-A Python command-line tool and AWS Lambda workload that monitors BOP Las Palmas, BOC, BOE, Sagulpa, Aena, EPSO, EURES, and eu-LISA to identify Information Technology and Software Engineering opportunities.
+A Python command-line tool and AWS Lambda workload that monitors BOP Las Palmas, BOC, BOE, Sagulpa, Guaguas Municipales, Aena, EPSO, EURES, and eu-LISA to identify Information Technology and Software Engineering opportunities.
 
 Official sources expose different PDF, HTML, RSS, CSV, JSON, and XML formats. The project uses source-specific fetchers and parsers, shared normalization models, keyword filtering, optional Gemini validation, and Markdown or HTML exports.
 
@@ -25,6 +25,8 @@ graph TD
     CLI --> BOCFetcher[BOCFetcher]
     CLI --> BOEFetcher[BOEFetcher]
     CLI --> AenaFetcher[AenaFetcher]
+    CLI --> GuaguasFetcher[GuaguasFetcher]
+    CLI --> GuaguasParser[GuaguasParser]
     CLI --> BOPParser[BOPParser]
     CLI --> BOCParser[BOCParser]
     CLI --> BOEParser[BOEParser]
@@ -44,6 +46,8 @@ graph TD
     BOCParser -- Implements --> IParser
     BOEParser -- Implements --> IParser
     AenaParser -- Implements --> IParser
+    GuaguasFetcher -- Implements --> IFetcher
+    GuaguasParser -- Implements --> IParser
     
     subgraph Utility Layers
         Cleaner[TextCleaner Pipeline]
@@ -103,7 +107,7 @@ graph TD
 The tool exposes two CLI commands: `job-finder` and the newly mapped `bo-finder`.
 
 ### 1. Basic Run (Scans the selected sources with smart fallback)
-Downloads and processes the selected sources; the default `ALL` group includes all eight integrations and outputs matches.
+Downloads and processes the selected sources; the default `ALL` group includes all nine integrations and outputs matches.
 
 **Smart Fallbacks**: If today's gazettes are not yet published or it is a weekend/holiday:
 * For **BOP**: The tool automatically scrapes the index to find the latest published bulletin.
@@ -121,13 +125,13 @@ python -m job_finder.main --date 2026-05-21
 ```
 
 ### 3. Filter by Source
-Target a source or group (`BOP`, `BOC`, `BOE`, `SAGULPA`, `AENA`, `EPSO`, `EURES`, `EULISA`, `ES`, `EU`, or `ALL`; default is `ALL`):
+Target a source or group (`BOP`, `BOC`, `BOE`, `SAGULPA`, `GUAGUAS`, `AENA`, `EPSO`, `EURES`, `EULISA`, `ES`, `EU`, or `ALL`; default is `ALL`):
 ```powershell
 python -m job_finder.main --source BOE
 ```
 
 ### 4. Parse a Local File (Auto-detection)
-Provide a local PDF, XML/RSS, HTML, CSV, or JSON file and the tool routes it to the appropriate parser without downloading that source first. A local run can still call Gemini and send notifications when those integrations are configured; use `--no-ai` and unset notification variables for an isolated parser check:
+Provide a local PDF, XML/RSS, HTML, CSV, or JSON file and the tool routes it to the appropriate parser without downloading that source first. Guaguas HTML is detected from its filename or a parser-supported employment container anywhere in the full document, not from generic employment-page phrases or only the first 2,000 characters. A local run can still call Gemini and send notifications when those integrations are configured; use `--no-ai` and unset notification variables for an isolated parser check:
 ```powershell
 python -m job_finder.main --file tests/fixtures/boe_sample.xml --no-ai
 ```

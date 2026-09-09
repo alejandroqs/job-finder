@@ -14,7 +14,7 @@ Source of truth: [`main.py`](../src/job_finder/main.py), [`.env.example`](../.en
 | --- | --- | --- |
 | `--date` | `YYYY-MM-DD`, omitted by default | Scans the supplied target date. Mutually exclusive with `--file`. |
 | `--file` | local path, omitted by default | Parses an offline PDF, XML/RSS, HTML, CSV, or JSON file and auto-detects the source. Mutually exclusive with `--date`. |
-| `--source`, `-s` | one of `BOP`, `BOC`, `BOE`, `SAGULPA`, `AENA`, `EPSO`, `EURES`, `EULISA`, `EU`, `ES`, `ALL`; default `ALL` | Selects individual sources or a group. |
+| `--source`, `-s` | one of `BOP`, `BOC`, `BOE`, `SAGULPA`, `GUAGUAS`, `AENA`, `EPSO`, `EURES`, `EULISA`, `EU`, `ES`, `ALL`; default `ALL` | Selects individual sources or a group. |
 | `--config` | optional path | Replaces the default `src/job_finder/keywords.yaml`. |
 | `--no-ai` | false by default | Skips the Gemini validation stage. It does not disable fetching, exports, or notifications. |
 | `--output` | `findings.md` | Destination overwritten by the selected exporter. |
@@ -33,6 +33,8 @@ The CLI exits with status `0` when it has findings and `1` when it has none. Thi
 Missing or non-dictionary input defaults to all sources and AI enabled. Lambda always passes `target_date=None`, so the resolved date is the current date. The source grouping rules are the same as the CLI, including `ES` and `EU`.
 
 Source selection is branch-based in `run_scan`: `ALL` takes precedence, then `EU`, then `ES`, and only otherwise is the supplied list used as individual sources. A Lambda event containing both `EU` and `ES` therefore runs `EU` and ignores the `ES` branch; the groups are not merged. The CLI supplies one `--source` value at a time.
+
+The `ES` group contains six sources, including Guaguas Municipales; `EU` remains the three-source European group; `ALL` contains nine sources. Guaguas always evaluates its inclusive application interval against the resolved execution date in online scans, including a CLI run without `--date`.
 
 ## Environment variables
 

@@ -4,7 +4,7 @@ Purpose: provide a bounded checklist for adding another job source without bypas
 
 Read when: introducing a new portal, feed, API, or bulletin.
 
-Source of truth: `interfaces.py`, `main.py`, existing source families, and the test suite.
+Source of truth: [`interfaces.py`](../../src/job_finder/interfaces.py), [`main.py`](../../src/job_finder/main.py), existing source families, and the test suite under [`tests`](../../tests/).
 
 ## Implementation sequence
 

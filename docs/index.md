@@ -4,7 +4,7 @@ Purpose: route agents to the smallest set of project context needed for a task.
 
 Read when: entering the repository, choosing a task-specific document, or checking whether a document belongs in this system.
 
-Source of truth: the current source under `src/job_finder`, tests and fixtures under `tests`, deployment configuration under `.github`, and the explicit policies in `AGENTS.md`.
+Source of truth: the current source under [`src/job_finder`](../src/job_finder/), tests and fixtures under [`tests`](../tests/), deployment configuration under [`.github`](../.github/), and the explicit policies in [`AGENTS.md`](../AGENTS.md).
 
 ## Task routes
 

@@ -4,7 +4,7 @@ Purpose: describe Sagulpa and Aena list/detail scraping, active-window rules, an
 
 Read when: changing a web-board parser, HTML selector, closing-date rule, title rejection, or temporary PDF flow.
 
-Source of truth: `sagulpa_fetcher.py`, `sagulpa_parser.py`, `aena_fetcher.py`, `aena_parser.py`, `keyword_filter.py`, and the corresponding tests.
+Source of truth: the Sagulpa and Aena fetcher/parser modules under [`src/job_finder`](../../src/job_finder/), [`keyword_filter.py`](../../src/job_finder/keyword_filter.py), and the corresponding tests under [`tests`](../../tests/).
 
 ## Shared pattern
 

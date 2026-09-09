@@ -29,6 +29,13 @@ Read source code as the authority for implemented behaviour. The documentation d
 - Do not invoke production services, send notifications, deploy Lambda, or modify external systems unless the task explicitly authorizes it.
 - Use the repository's actual paths and symbols. Do not invent modules, commands, URLs, environment variables, or guarantees.
 
+## Lambda packaging constraints
+
+- Treat `requirements.txt` as the deployment dependency manifest. Its versions are expected to use exact `==` pins; if the file violates that policy, record the mismatch rather than describing it as compliant.
+- Build Lambda packages inside the official `public.ecr.aws/sam/build-python3.14` image. Do not create deployment ZIPs with Windows-native archive tools or a generic Linux image.
+- Lambda can write only to `/tmp`. Route temporary downloads there and clean them up when the implementation provides a cleanup path.
+- Read [docs/workflows/lambda-operations.md](docs/workflows/lambda-operations.md) before changing packaging, deployment, runtime, or scheduled execution documentation.
+
 ## Investigation and codebase memory
 
 The repository is indexed by `codebase-memory-mcp` as `C-Users-muk04-Development-Python-job-finder`. For non-trivial structural questions, use the `codebase-memory-project` workflow:
@@ -62,5 +69,3 @@ All documentation in this repository is written in English. Keep `AGENTS.md` con
 ## Scope discipline
 
 Before implementing a non-trivial change, identify the entry point, affected interfaces, callers or consumers, tests, configuration, and operational effects. Prefer a bounded plan. After editing, review the diff and run the relevant checks; report checks that could not be run.
-
-The model-selection policy is controlled by the human operator and is intentionally not an automatic agent rule in this file.

@@ -4,7 +4,7 @@ Purpose: keep agent context accurate without turning `AGENTS.md` into a second R
 
 Read when: code, configuration, source contracts, deployment, commands, or operational assumptions change.
 
-Source of truth: the current repository. This procedure is policy for maintaining the documents below.
+Source of truth: the current repository, especially [`AGENTS.md`](../AGENTS.md), [`src/job_finder`](../src/job_finder/), [`tests`](../tests/), and [`.github/workflows`](../.github/workflows/). This procedure is policy for maintaining the documents below.
 
 ## Update procedure
 

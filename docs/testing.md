@@ -4,7 +4,7 @@ Purpose: explain the local test suite and what its results can establish.
 
 Read when: changing parsers, filters, exporters, fixtures, or test commands.
 
-Source of truth: `tests/`, `tests/conftest.py`, and the development dependencies in `pyproject.toml`.
+Source of truth: [`tests/`](../tests/), [`tests/conftest.py`](../tests/conftest.py), and the development dependencies in [`pyproject.toml`](../pyproject.toml).
 
 ## Run the suite
 

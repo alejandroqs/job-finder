@@ -4,7 +4,7 @@ Purpose: describe the BOP Las Palmas, BOC, and BOE integrations and their differ
 
 Read when: changing a Spanish gazette fetcher/parser, date fallback, PDF/XML handling, or section filtering.
 
-Source of truth: `bop_fetcher.py`, `bop_parser.py`, `boc_fetcher.py`, `boc_parser.py`, `boe_fetcher.py`, `boe_parser.py`, `keyword_filter.py`, and their tests.
+Source of truth: the BOP, BOC, and BOE fetcher/parser modules under [`src/job_finder`](../../src/job_finder/), [`keyword_filter.py`](../../src/job_finder/keyword_filter.py), and their tests under [`tests`](../../tests/).
 
 ## Shared filtering
 

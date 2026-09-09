@@ -4,7 +4,7 @@ Purpose: explain how the scanner moves from an entry point to normalized finding
 
 Read when: tracing execution, changing a source integration, changing filtering or AI validation, or assessing operational impact.
 
-Source of truth: `src/job_finder/main.py`, `src/job_finder/interfaces.py`, the source-specific fetchers and parsers, `keyword_filter.py`, `gemini_validator.py`, `html_exporter.py`, and `notifier.py`.
+Source of truth: [`main.py`](../src/job_finder/main.py), [`interfaces.py`](../src/job_finder/interfaces.py), the source-specific fetchers and parsers under [`src/job_finder`](../src/job_finder/), [`keyword_filter.py`](../src/job_finder/keyword_filter.py), [`gemini_validator.py`](../src/job_finder/gemini_validator.py), [`html_exporter.py`](../src/job_finder/html_exporter.py), and [`notifier.py`](../src/job_finder/notifier.py).
 
 ## Entry points
 
@@ -37,7 +37,7 @@ When more than one online source is selected, source scans run in a `ThreadPoolE
 
 ## Domain contracts
 
-`BOPage` is the normalized raw page or item passed to filtering. `ParsedAnnouncement` is the normalized finding used by exports, AI validation, and notifications. The abstract interfaces in `interfaces.py` group the implementations into gazette fetchers/parsers, web-board fetchers/parsers, European fetchers/parsers, and an optional AI validator.
+`BOPage` is the normalized raw page or item passed to filtering. `ParsedAnnouncement` is the normalized finding used by exports, AI validation, and notifications. [`interfaces.py`](../src/job_finder/interfaces.py) defines `BaseFetcher`/`BaseParser` for gazettes, `BaseWebBoardFetcher`/`BaseWebBoardParser` for corporate boards, `BaseEUFetcher`/`BaseEUParser` for European sources, and `BaseAIValidator` for optional AI validation. `main.py` instantiates the concrete classes explicitly; it does not depend exclusively on abstract objects.
 
 `KeywordFilter` applies Spanish accent-insensitive IT matching plus employment anchors to Spanish sources. For dedicated EU portals it uses the configured ESCO-style English IT patterns and bypasses Spanish contest anchors. It also removes configured Spanish boilerplate and provides early title rejection for Aena.
 

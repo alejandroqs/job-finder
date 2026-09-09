@@ -67,6 +67,26 @@ class JobOfferValidationBatch(BaseModel):
 class GeminiValidator(BaseAIValidator):
     """Concrete implementation of BaseAIValidator using Gemini Flash 3.5 via API Studio."""
 
+    @staticmethod
+    def _candidate_identity(ann: ParsedAnnouncement) -> tuple[str, ...]:
+        """Return the bounded identity used throughout batch validation.
+
+        Most existing sources intentionally retain URL-only deduplication.
+        GEURSA and GSC can legitimately emit several distinct cards without
+        unique navigable URLs, so a shared source-page URL is not sufficient
+        identity.
+        Keep the navigable URL unchanged and add only the stable candidate
+        fields needed to separate those GEURSA records.
+        """
+        if ann.source in {"GEURSA", "GSC"}:
+            return (
+                ann.source,
+                ann.organism or "",
+                ann.description or "",
+                ann.url or "",
+            )
+        return ("URL", ann.url or "")
+
     def __init__(self, api_key: str = None):
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
         
@@ -112,19 +132,22 @@ class GeminiValidator(BaseAIValidator):
             return announcements
 
         try:
-            # 1. Deduplication step: group announcements by URL.
+            # 1. Deduplication step: use the source-aware candidate identity.
             unique_announcements: List[ParsedAnnouncement] = []
-            url_to_announcements: Dict[str, List[ParsedAnnouncement]] = {}
+            identity_to_announcements: Dict[tuple[str, ...], List[ParsedAnnouncement]] = {}
             
             for ann in announcements:
-                url = ann.url or ""
-                if url not in url_to_announcements:
-                    url_to_announcements[url] = []
+                identity = self._candidate_identity(ann)
+                if identity not in identity_to_announcements:
+                    identity_to_announcements[identity] = []
                     unique_announcements.append(ann)
-                url_to_announcements[url].append(ann)
+                identity_to_announcements[identity].append(ann)
 
-            # Initialize all deduplicated URLs as True (YES) by default to prefer false positives on failure (recall-bias).
-            verdict_by_url = {ann.url: True for ann in unique_announcements}
+            # Initialize all deduplicated candidates as True (YES) by default
+            # to prefer false positives on failure (recall-bias).
+            verdict_by_identity = {
+                self._candidate_identity(ann): True for ann in unique_announcements
+            }
             num_unique = len(unique_announcements)
 
             # Slice unique announcements into chunks of 10
@@ -150,7 +173,8 @@ class GeminiValidator(BaseAIValidator):
                     for idx, ann in enumerate(chunk):
                         item = results_by_id.get(idx)
                         if item is not None:
-                            verdict_by_url[ann.url] = item.is_tech_job
+                            identity = self._candidate_identity(ann)
+                            verdict_by_identity[identity] = item.is_tech_job
                             print(
                                 f"🤖 AI Val (Chunk {chunk_idx+1}, Job {idx+1}): {ann.organism} -> "
                                 f"is_tech_job={item.is_tech_job} "
@@ -159,7 +183,7 @@ class GeminiValidator(BaseAIValidator):
                             )
                         else:
                             # If Gemini response missed this ID, default to True (recall bias)
-                            verdict_by_url[ann.url] = True
+                            verdict_by_identity[self._candidate_identity(ann)] = True
                             print(
                                 f"⚠️ AI Val (Chunk {chunk_idx+1}, Job {idx+1}): Missing from response. Keeping by default (recall-bias).",
                                 file=sys.stderr
@@ -167,15 +191,19 @@ class GeminiValidator(BaseAIValidator):
                 else:
                     # If validation of this chunk failed, default to True for all its jobs
                     for idx, ann in enumerate(chunk):
-                        verdict_by_url[ann.url] = True
+                        verdict_by_identity[self._candidate_identity(ann)] = True
                         print(
                             f"⚠️ AI Val (Chunk {chunk_idx+1}, Job {idx+1}) failed. Keeping by default (recall-bias).",
                             file=sys.stderr
                         )
 
-            # 3. Map YES verdicts back to the full list.
-            kept_urls = {url for url, verdict in verdict_by_url.items() if verdict}
-            final_announcements = [ann for ann in announcements if ann.url in kept_urls]
+            # 3. Map YES verdicts back to the full list using the same identity
+            # used for deduplication and verdict storage.
+            final_announcements = [
+                ann
+                for ann in announcements
+                if verdict_by_identity.get(self._candidate_identity(ann), True)
+            ]
             return final_announcements
 
         except Exception as e:

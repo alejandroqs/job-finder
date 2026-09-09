@@ -57,8 +57,17 @@ def test_source_groups_include_guaguas_and_keep_eu_unchanged(monkeypatch):
 
     calls.clear()
     main.run_scan(sources=["ES"], no_ai=True)
-    assert set(calls) == {"BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "AENA"}
-    assert len(calls) == 6
+    assert set(calls) == {
+        "BOP",
+        "BOC",
+        "BOE",
+        "SAGULPA",
+        "GUAGUAS",
+        "GEURSA",
+        "GSC",
+        "AENA",
+    }
+    assert len(calls) == 8
 
     calls.clear()
     main.run_scan(sources=["EU"], no_ai=True)
@@ -73,12 +82,14 @@ def test_source_groups_include_guaguas_and_keep_eu_unchanged(monkeypatch):
         "BOE",
         "SAGULPA",
         "GUAGUAS",
+        "GEURSA",
+        "GSC",
         "AENA",
         "EPSO",
         "EURES",
         "EULISA",
     }
-    assert len(calls) == 9
+    assert len(calls) == 11
 
 
 def test_offline_detection_reads_beyond_header_prefix(tmp_path, capsys):

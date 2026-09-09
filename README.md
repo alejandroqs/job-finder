@@ -3,7 +3,7 @@
 [![Python Version](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 [![Testing](https://img.shields.io/badge/tests-pytest-green.svg)](https://pytest.org/)
 
-A Python command-line tool and AWS Lambda workload that monitors BOP Las Palmas, BOC, BOE, Sagulpa, Guaguas Municipales, Aena, EPSO, EURES, and eu-LISA to identify Information Technology and Software Engineering opportunities.
+A Python command-line tool and AWS Lambda workload that monitors BOP Las Palmas, BOC, BOE, Sagulpa, Guaguas Municipales, GEURSA, GSC, Aena, EPSO, EURES, and eu-LISA to identify Information Technology and Software Engineering opportunities.
 
 Official sources expose different PDF, HTML, RSS, CSV, JSON, and XML formats. The project uses source-specific fetchers and parsers, shared normalization models, keyword filtering, optional Gemini validation, and Markdown or HTML exports.
 
@@ -27,6 +27,10 @@ graph TD
     CLI --> AenaFetcher[AenaFetcher]
     CLI --> GuaguasFetcher[GuaguasFetcher]
     CLI --> GuaguasParser[GuaguasParser]
+    CLI --> GeursaFetcher[GeursaFetcher]
+    CLI --> GeursaParser[GeursaParser]
+    CLI --> GSCFetcher[GSCFetcher]
+    CLI --> GSCParser[GSCParser]
     CLI --> BOPParser[BOPParser]
     CLI --> BOCParser[BOCParser]
     CLI --> BOEParser[BOEParser]
@@ -48,6 +52,10 @@ graph TD
     AenaParser -- Implements --> IParser
     GuaguasFetcher -- Implements --> IFetcher
     GuaguasParser -- Implements --> IParser
+    GeursaFetcher -- Implements --> IFetcher
+    GeursaParser -- Implements --> IParser
+    GSCFetcher -- Implements --> IFetcher
+    GSCParser -- Implements --> IParser
     
     subgraph Utility Layers
         Cleaner[TextCleaner Pipeline]
@@ -107,7 +115,7 @@ graph TD
 The tool exposes two CLI commands: `job-finder` and the newly mapped `bo-finder`.
 
 ### 1. Basic Run (Scans the selected sources with smart fallback)
-Downloads and processes the selected sources; the default `ALL` group includes all nine integrations and outputs matches.
+Downloads and processes the selected sources; the default `ALL` group includes all eleven integrations and outputs matches.
 
 **Smart Fallbacks**: If today's gazettes are not yet published or it is a weekend/holiday:
 * For **BOP**: The tool automatically scrapes the index to find the latest published bulletin.
@@ -125,16 +133,18 @@ python -m job_finder.main --date 2026-05-21
 ```
 
 ### 3. Filter by Source
-Target a source or group (`BOP`, `BOC`, `BOE`, `SAGULPA`, `GUAGUAS`, `AENA`, `EPSO`, `EURES`, `EULISA`, `ES`, `EU`, or `ALL`; default is `ALL`):
+Target a source or group (`BOP`, `BOC`, `BOE`, `SAGULPA`, `GUAGUAS`, `GEURSA`, `GSC`, `AENA`, `EPSO`, `EURES`, `EULISA`, `ES`, `EU`, or `ALL`; default is `ALL`):
 ```powershell
 python -m job_finder.main --source BOE
 ```
 
 ### 4. Parse a Local File (Auto-detection)
-Provide a local PDF, XML/RSS, HTML, CSV, or JSON file and the tool routes it to the appropriate parser without downloading that source first. Guaguas HTML is detected from its filename or a parser-supported employment container anywhere in the full document, not from generic employment-page phrases or only the first 2,000 characters. A local run can still call Gemini and send notifications when those integrations are configured; use `--no-ai` and unset notification variables for an isolated parser check:
+Provide a local PDF, XML/RSS, HTML, CSV, or JSON file and the tool routes it to the appropriate parser without downloading that source first. Guaguas HTML is detected from its filename or a parser-supported employment container anywhere in the full document, while GEURSA HTML uses a parser-supported active heading plus accordion structure. GSC HTML uses a bounded `gsc` filename token or the parser-supported `#seleccion` plus `.projects_holder.portfolio_main_holder` structure; its parser reads only direct cards in that holder. Generic employment-page phrases or a source mention alone do not provide structural recognition. A local run can still call Gemini and send notifications when those integrations are configured; use `--no-ai` and unset notification variables for an isolated parser check:
 ```powershell
 python -m job_finder.main --file tests/fixtures/boe_sample.xml --no-ai
 ```
+
+GSC reads only direct cards in the current `#seleccion` list holder. It accepts a leading `DD/MM/YYYY` or `DD-MM-YYYY` publication date and monitors the inclusive eight-date window through publication plus seven days; that inferred date is a monitoring heuristic, not an official application deadline. Administrative, result, applicant-list, correction, subsanación, exam/stage, and cancelled notices are excluded before IT filtering. A historical date does not retrieve historical website state, and repeated scans in the same window can repeat findings because there is no persistent cross-run deduplication.
 
 ### 5. Custom Keyword Filtering
 Pass a custom `keywords.yaml` file to modify IT keywords or employment anchors on the fly:

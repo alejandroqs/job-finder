@@ -12,6 +12,8 @@ Configure the Lambda handler as `job_finder.main.lambda_handler`. The handler ac
 
 The code uses `/tmp` for temporary downloaded PDFs because the Lambda filesystem is read-only elsewhere. Temporary BOP and Aena files are removed in cleanup paths. The repository does not define the EventBridge schedule; scheduling and runtime environment variables are infrastructure configuration outside this codebase.
 
+The current source groups mean that a future deployment will make `ALL`/default Lambda scans and `ES` scans include GSC. `EU` and explicit selections of other individual sources do not include it. This source change does not alter the EventBridge schedule and no deployment or schedule operation is performed by the implementation task.
+
 The deployment workflow reads `AWS_ROLE_ARN` and `AWS_REGION` from GitHub Actions repository variables for OIDC authentication. The S3 bucket name and Lambda function name are currently literal values in the workflow. The EventBridge schedule, Lambda environment variables, IAM role permissions, handler setting, and runtime configuration are not defined by this repository's workflow and must be checked in the AWS or GitHub configuration.
 
 ## Deployment workflow

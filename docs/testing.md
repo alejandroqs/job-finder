@@ -27,8 +27,14 @@ The repository uses pytest fixtures and local samples. Do not hard-code a test c
 | `test_guaguas_parser.py` | Label-based card extraction, structural notice exclusion, inclusive application windows, bases-link resolution, deduplication, diagnostics, and Spanish filtering. |
 | `test_guaguas_fetcher.py` | Mocked list/detail requests, explicit timeout, HTTP status checks, URL resolution, and contextual failures. |
 | `test_guaguas_integration.py` | No-network Guaguas pipeline, source groups, structural offline detection beyond a long header, container variants, generic-page rejection, neighbouring-source routing, and `no_ai=True`. |
+| `test_geursa_parser.py` | Active-section boundaries, empty semantic-owner containment, finalized-section exclusion, nearest-card ownership for nested titles/bodies/links, collapsed panels, controlled-panel containment, deadline-independent inclusion, Bases/fallback URLs, attachment separation, deduplication, diagnostics, and input parity. |
+| `test_geursa_fetcher.py` | Mocked list/detail requests, explicit timeout, UTF-8 stream wrapping, HTTP status checks, URL resolution, and contextual failures. |
+| `test_geursa_integration.py` | No-network GEURSA pipeline, fake AI-enabled orchestration, source groups, CLI acceptance, conservative offline detection, neighbouring-source routing, and `no_ai=True`. |
+| `test_gsc_parser.py` | Bounded `#seleccion` extraction, owned title/date/link association including nested-record isolation, slash/hyphen dates, inclusive synthetic windows, case/accent-insensitive administrative/cancellation exclusions, diagnostics, malformed and other URL fallback, deduplication, input parity, and normalized date labels. |
+| `test_gsc_fetcher.py` | One-request list fetching, explicit timeout, UTF-8 stream wrapping, HTTP status checks, contextual failures, and unexpected-error propagation. |
+| `test_gsc_integration.py` | No-network GSC pipeline, pre-filter notice exclusion, fake AI orchestration, source groups, CLI acceptance, conservative offline detection for HTML/signatures, empty-section containment, shared-URL AI identity, payload-level deduplication, missing-verdict fallback, and failed-chunk fallback behaviour. |
 | `test_aena_parser.py` | List rejection and expiration, detail/PDF extraction, and injected-fetcher behaviour. |
-| `test_eu_sources.py` | EPSO, EURES, and eu-LISA parsing/filtering plus Gemini validation, retries, structured output, deduplication, and fallback behaviour. |
+| `test_eu_sources.py` | EPSO, EURES, and eu-LISA parsing/filtering plus Gemini validation, source-aware identity coverage, retries, structured output, deduplication, and fallback behaviour. |
 | `test_keyword_filter.py` | Early title-rejection rules. |
 | `test_html_exporter.py` | HTML rendering, empty findings, and overwrite behaviour. |
 

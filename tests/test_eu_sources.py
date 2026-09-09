@@ -350,6 +350,129 @@ def test_validator_deduplication(monkeypatch):
     assert len(result) == 3
 
 
+def _geursa_candidate(description, page_number):
+    return ParsedAnnouncement(
+        organism="GEURSA",
+        description=description,
+        page_number=page_number,
+        matched_keywords=["convocatoria"],
+        source="GEURSA",
+        url="https://www.geursa.es/procesos-de-seleccion/",
+    )
+
+
+def _patch_fake_gemini_client(monkeypatch, result_factory, captured_jobs):
+    from google import genai
+
+    class MockResponse:
+        def __init__(self, text):
+            self.text = text
+
+    class MockModels:
+        def generate_content(self, model, contents, config):
+            del model, config
+            context = contents.split("<context>\n", 1)[1].split("\n</context>", 1)[0]
+            jobs = json.loads(context)
+            captured_jobs.append(jobs)
+            results = result_factory(jobs)
+            return MockResponse(json.dumps({"results": results}, ensure_ascii=False))
+
+    class MockClient:
+        def __init__(self, api_key):
+            del api_key
+            self.models = MockModels()
+
+    monkeypatch.setattr(genai, "Client", MockClient)
+
+
+def _validation_item(job, is_tech_job):
+    return {
+        "id": job["id"],
+        "is_tech_job": is_tech_job,
+        "job_title": job["text"] if is_tech_job else None,
+        "organism": "GEURSA" if is_tech_job else None,
+        "confidence": "high",
+    }
+
+
+def test_validator_separates_distinct_geursa_candidates_with_same_fallback_url(
+    monkeypatch,
+):
+    captured_jobs = []
+
+    def result_factory(jobs):
+        return [_validation_item(job, "KEEP" in job["text"]) for job in jobs]
+
+    _patch_fake_gemini_client(monkeypatch, result_factory, captured_jobs)
+    candidates = [
+        _geursa_candidate("KEEP: Técnico de Sistemas", 1),
+        _geursa_candidate("DROP: Administrativo", 2),
+    ]
+
+    validator = GeminiValidator(api_key="mock-key")
+    result = validator.validate_batch(candidates)
+    reversed_result = validator.validate_batch(list(reversed(candidates)))
+
+    assert [ann.description for ann in result] == ["KEEP: Técnico de Sistemas"]
+    assert [ann.description for ann in reversed_result] == ["KEEP: Técnico de Sistemas"]
+    assert all(len(jobs) == 2 for jobs in captured_jobs)
+
+
+def test_validator_deduplicates_exact_geursa_candidates_with_same_fallback_url(
+    monkeypatch,
+):
+    captured_jobs = []
+
+    def result_factory(jobs):
+        return [_validation_item(job, False) for job in jobs]
+
+    _patch_fake_gemini_client(monkeypatch, result_factory, captured_jobs)
+    first = _geursa_candidate("Exact GEURSA candidate", 1)
+    duplicate = _geursa_candidate("Exact GEURSA candidate", 1)
+
+    result = GeminiValidator(api_key="mock-key").validate_batch([first, duplicate])
+
+    assert result == []
+    assert [len(jobs) for jobs in captured_jobs] == [1]
+
+
+def test_validator_keeps_geursa_candidate_when_response_omits_its_result(monkeypatch):
+    captured_jobs = []
+
+    def result_factory(jobs):
+        return [_validation_item(jobs[0], False)]
+
+    _patch_fake_gemini_client(monkeypatch, result_factory, captured_jobs)
+    candidates = [
+        _geursa_candidate("DROP: first", 1),
+        _geursa_candidate("KEEP by missing-result fallback", 2),
+    ]
+
+    result = GeminiValidator(api_key="mock-key").validate_batch(candidates)
+
+    assert [ann.description for ann in result] == ["KEEP by missing-result fallback"]
+    assert len(captured_jobs[0]) == 2
+
+
+def test_validator_keeps_all_geursa_candidates_when_chunk_fails(monkeypatch):
+    captured_jobs = []
+
+    def result_factory(jobs):
+        raise RuntimeError("mock chunk failure")
+
+    _patch_fake_gemini_client(monkeypatch, result_factory, captured_jobs)
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+    candidates = [
+        _geursa_candidate("First candidate", 1),
+        _geursa_candidate("Second candidate", 2),
+    ]
+
+    result = GeminiValidator(api_key="mock-key").validate_batch(candidates)
+
+    assert result == candidates
+    assert len(captured_jobs) == 3
+
+
 def test_validator_context_inversion(monkeypatch):
     from google import genai
     

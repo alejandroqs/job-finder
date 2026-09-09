@@ -1,6 +1,7 @@
 import argparse
 import datetime
 import io
+import re
 import sys
 import textwrap
 import os
@@ -27,6 +28,14 @@ from job_finder.sagulpa_parser import SagulpaParser
 # Guaguas Components
 from job_finder.guaguas_fetcher import GuaguasFetcher
 from job_finder.guaguas_parser import GuaguasParser
+
+# GEURSA Components
+from job_finder.geursa_fetcher import GeursaFetcher
+from job_finder.geursa_parser import GeursaParser
+
+# GSC Components
+from job_finder.gsc_fetcher import GSCFetcher
+from job_finder.gsc_parser import GSCParser
 
 # Aena Components
 from job_finder.aena_fetcher import AenaFetcher
@@ -146,6 +155,10 @@ def print_source_header(source_name: str) -> None:
         title = "SAGULPA - MUNICIPAL JOB BOARD"
     elif source_name == "GUAGUAS":
         title = "GUAGUAS - MUNICIPAL JOB BOARD"
+    elif source_name == "GEURSA":
+        title = "GEURSA - EMPLOYMENT SELECTION PROCESSES"
+    elif source_name == "GSC":
+        title = "GSC - HEALTH AND SAFETY EMPLOYMENT PROCESSES"
     elif source_name == "EPSO":
         title = "EPSO - EUROPEAN UNION OPEN DATA"
     elif source_name == "EURES":
@@ -162,6 +175,21 @@ def print_source_header(source_name: str) -> None:
 def _is_guaguas_html(html: str) -> bool:
     """Recognize Guaguas HTML using the same structural containers as its parser."""
     return GuaguasParser.has_supported_container(html)
+
+
+def _is_geursa_html(html: str) -> bool:
+    """Recognize GEURSA HTML using its active accordion structure."""
+    return GeursaParser.has_supported_structure(html)
+
+
+def _is_gsc_html(html: str) -> bool:
+    """Recognize GSC HTML using its bounded selection holder."""
+    return GSCParser.has_supported_structure(html)
+
+
+def _has_bounded_gsc_filename(filename: str) -> bool:
+    """Recognize a GSC filename token without matching words such as ``gscout``."""
+    return re.search(r"(?<![a-z0-9])gsc(?![a-z0-9])", filename.casefold()) is not None
 
 
 def _scan_single_source(
@@ -309,6 +337,35 @@ def _scan_single_source(
             except Exception as e:
                 print(f"❌ Guaguas download/parse failed: {e}", file=sys.stderr)
 
+        elif src == "GEURSA":
+            print("📅 GEURSA inclusion: every card under 'Convocatorias en vigor'")
+            fetcher = GeursaFetcher()
+            geursa_parser = GeursaParser()
+
+            try:
+                print("🌐 Connecting to www.geursa.es employment selection board...")
+                list_stream = fetcher.fetch(resolved_date)
+                print("📥 Download complete! Parsing GEURSA active-process cards...")
+                pages = geursa_parser.parse(list_stream, target_date=resolved_date)
+            except Exception as e:
+                print(f"❌ GEURSA download/parse failed: {e}", file=sys.stderr)
+
+        elif src == "GSC":
+            print(
+                "📅 GSC inclusion: publication date through publication + 7 days "
+                "(inclusive; synthetic monitoring window)"
+            )
+            fetcher = GSCFetcher()
+            gsc_parser = GSCParser()
+
+            try:
+                print("🌐 Connecting to www.gsccanarias.com GSC selection board...")
+                list_stream = fetcher.fetch(resolved_date)
+                print("📥 Download complete! Parsing GSC selection cards...")
+                pages = gsc_parser.parse(list_stream, target_date=resolved_date)
+            except Exception as e:
+                print(f"❌ GSC download/parse failed: {e}", file=sys.stderr)
+
         elif src == "SAGULPA":
             print(f"📅 Target Date: {resolved_date.strftime('%Y-%m-%d') if (target_date or is_lambda) else 'ALL ACTIVE OPENINGS'}")
             fetcher = SagulpaFetcher()
@@ -378,6 +435,8 @@ def _scan_single_source(
 
         # Scan the pages/items for this source
         src_announcements = []
+        if src == "GSC":
+            print(f"📊 GSC included records: {len(pages)}")
         if pages:
             print(f"🔎 Scanning {len(pages)} pages/entries in this bulletin...")
             for page in pages:
@@ -448,10 +507,14 @@ def run_scan(
             except Exception:
                 source_type = "BOC"
         elif suffix in (".html", ".htm"):
-            # Distinguish between Guaguas, SAGULPA, EULISA, and AENA.
+            # Distinguish between GEURSA, Guaguas, SAGULPA, EULISA, and AENA.
             file_name = local_file.name.lower()
-            if "guaguas" in file_name:
+            if "geursa" in file_name:
+                source_type = "GEURSA"
+            elif "guaguas" in file_name:
                 source_type = "GUAGUAS"
+            elif _has_bounded_gsc_filename(file_name):
+                source_type = "GSC"
             elif "eulisa" in file_name:
                 source_type = "EULISA"
             elif "aena" in file_name:
@@ -461,8 +524,12 @@ def run_scan(
                     with open(local_file, "r", encoding="utf-8", errors="replace") as f:
                         html = f.read()
                     html_lower = html.lower()
-                    if _is_guaguas_html(html):
+                    if _is_geursa_html(html):
+                        source_type = "GEURSA"
+                    elif _is_guaguas_html(html):
                         source_type = "GUAGUAS"
+                    elif _is_gsc_html(html):
+                        source_type = "GSC"
                     elif "eulisa" in html_lower:
                         source_type = "EULISA"
                     elif "aena" in html_lower:
@@ -486,12 +553,20 @@ def run_scan(
                     with open(local_file, "r", encoding="utf-8", errors="replace") as f:
                         content = f.read()
                     content_lower = content.lower()
-                    if _is_guaguas_html(content):
+                    if _is_geursa_html(content):
+                        source_type = "GEURSA"
+                    elif _is_guaguas_html(content):
                         source_type = "GUAGUAS"
+                    elif _is_gsc_html(content):
+                        source_type = "GSC"
                     elif "<rss" in content_lower:
                         source_type = "BOC"
                     elif "<html" in content_lower or "<!doctype" in content_lower:
-                        if "eulisa" in local_file.name.lower():
+                        if "geursa" in local_file.name.lower():
+                            source_type = "GEURSA"
+                        elif _has_bounded_gsc_filename(local_file.name):
+                            source_type = "GSC"
+                        elif "eulisa" in local_file.name.lower():
                             source_type = "EULISA"
                         elif "aena" in local_file.name.lower():
                             source_type = "AENA"
@@ -500,11 +575,22 @@ def run_scan(
                     else:
                         source_type = "BOE"
                 elif sig.startswith(b"<!DO") or sig.startswith(b"<htm") or b"<html" in sig.lower():
-                    if "guaguas" in local_file.name.lower():
+                    with open(local_file, "r", encoding="utf-8", errors="replace") as f:
+                        content = f.read()
+                    content_lower = content.lower()
+                    if "geursa" in local_file.name.lower() or _is_geursa_html(content):
+                        source_type = "GEURSA"
+                    elif "guaguas" in local_file.name.lower() or _is_guaguas_html(content):
                         source_type = "GUAGUAS"
+                    elif _has_bounded_gsc_filename(local_file.name) or _is_gsc_html(content):
+                        source_type = "GSC"
                     elif "eulisa" in local_file.name.lower():
                         source_type = "EULISA"
                     elif "aena" in local_file.name.lower():
+                        source_type = "AENA"
+                    elif "eulisa" in content_lower:
+                        source_type = "EULISA"
+                    elif "aena" in content_lower:
                         source_type = "AENA"
                     else:
                         source_type = "SAGULPA"
@@ -513,8 +599,13 @@ def run_scan(
                 elif b"," in sig or b";" in sig:
                     source_type = "EPSO"
                 else:
-                    print(f"❌ Error: Unrecognized file type for '{local_file.name}'. Must be PDF, XML, HTML, CSV, or JSON.", file=sys.stderr)
-                    return []
+                    with open(local_file, "r", encoding="utf-8", errors="replace") as f:
+                        content = f.read()
+                    if _is_gsc_html(content):
+                        source_type = "GSC"
+                    else:
+                        print(f"❌ Error: Unrecognized file type for '{local_file.name}'. Must be PDF, XML, HTML, CSV, or JSON.", file=sys.stderr)
+                        return []
             except Exception as e:
                 print(f"❌ Error detecting file type: {e}", file=sys.stderr)
                 return []
@@ -531,6 +622,10 @@ def run_scan(
                 parser_inst = BOEParser()
             elif source_type == "GUAGUAS":
                 parser_inst = GuaguasParser()
+            elif source_type == "GEURSA":
+                parser_inst = GeursaParser()
+            elif source_type == "GSC":
+                parser_inst = GSCParser()
             elif source_type == "SAGULPA":
                 parser_inst = SagulpaParser()
             elif source_type == "AENA":
@@ -544,7 +639,12 @@ def run_scan(
             else:
                 raise ValueError(f"Unknown source type: {source_type}")
                 
-            pages = parser_inst.parse(local_file)
+            if source_type == "GSC":
+                gsc_reference_date = target_date or datetime.date.today()
+                pages = parser_inst.parse(local_file, target_date=gsc_reference_date)
+                print(f"📊 GSC parsed/included records: {len(pages)}")
+            else:
+                pages = parser_inst.parse(local_file)
             print(f"🔎 Scanning {len(pages)} parsed sections for IT opportunities...")
             
             for page in pages:
@@ -560,11 +660,11 @@ def run_scan(
         
         # Decide which sources to run
         if not sources or "ALL" in sources:
-            sources_to_run = ["BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "AENA", "EPSO", "EURES", "EULISA"]
+            sources_to_run = ["BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "GEURSA", "GSC", "AENA", "EPSO", "EURES", "EULISA"]
         elif "EU" in sources:
             sources_to_run = ["EPSO", "EURES", "EULISA"]
         elif "ES" in sources:
-            sources_to_run = ["BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "AENA"]
+            sources_to_run = ["BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "GEURSA", "GSC", "AENA"]
         else:
             sources_to_run = sources
         
@@ -682,14 +782,14 @@ def main() -> None:
     group.add_argument(
         "--file",
         type=Path,
-        help="Local file path to scan (.pdf for BOP, .xml/.rss for BOC/BOE, .csv for EPSO, .json for EURES, .html for Guaguas/Sagulpa/Aena/eu-LISA)"
+        help="Local file path to scan (.pdf for BOP, .xml/.rss for BOC/BOE, .csv for EPSO, .json for EURES, .html for GSC/GEURSA/Guaguas/Sagulpa/Aena/eu-LISA)"
     )
     parser.add_argument(
         "--source",
         "-s",
-        choices=["BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "AENA", "EPSO", "EURES", "EULISA", "EU", "ES", "ALL"],
+        choices=["BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "GEURSA", "GSC", "AENA", "EPSO", "EURES", "EULISA", "EU", "ES", "ALL"],
         default="ALL",
-        help="Target official gazette source(s) to scan (use 'EU' for European Union, 'ES' for Spanish, or individual source names)"
+        help="Target official source(s) to scan (use 'EU' for European Union, 'ES' for Spanish, or an individual source such as GSC or GEURSA)"
     )
     parser.add_argument(
         "--config",

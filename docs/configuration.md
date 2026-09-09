@@ -14,7 +14,7 @@ Source of truth: [`main.py`](../src/job_finder/main.py), [`.env.example`](../.en
 | --- | --- | --- |
 | `--date` | `YYYY-MM-DD`, omitted by default | Scans the supplied target date. Mutually exclusive with `--file`. |
 | `--file` | local path, omitted by default | Parses an offline PDF, XML/RSS, HTML, CSV, or JSON file and auto-detects the source. Mutually exclusive with `--date`. |
-| `--source`, `-s` | one of `BOP`, `BOC`, `BOE`, `SAGULPA`, `GUAGUAS`, `AENA`, `EPSO`, `EURES`, `EULISA`, `EU`, `ES`, `ALL`; default `ALL` | Selects individual sources or a group. |
+| `--source`, `-s` | one of `BOP`, `BOC`, `BOE`, `SAGULPA`, `GUAGUAS`, `GEURSA`, `GSC`, `AENA`, `EPSO`, `EURES`, `EULISA`, `EU`, `ES`, `ALL`; default `ALL` | Selects individual sources or a group. |
 | `--config` | optional path | Replaces the default `src/job_finder/keywords.yaml`. |
 | `--no-ai` | false by default | Skips the Gemini validation stage. It does not disable fetching, exports, or notifications. |
 | `--output` | `findings.md` | Destination overwritten by the selected exporter. |
@@ -30,11 +30,13 @@ The CLI exits with status `0` when it has findings and `1` when it has none. Thi
 {"sources": ["ALL"], "no_ai": false}
 ```
 
-Missing or non-dictionary input defaults to all sources and AI enabled. Lambda always passes `target_date=None`, so the resolved date is the current date. The source grouping rules are the same as the CLI, including `ES` and `EU`.
+Missing or non-dictionary input defaults to all sources and AI enabled. Lambda always passes `target_date=None`, so the resolved date is the current date. The source grouping rules are the same as the CLI, including `ES` and `EU`. GEURSA accepts the resolved date for the shared fetch/parse interface but does not use it to select cards. GSC applies the resolved date to its current list using its synthetic publication-plus-seven-day window.
 
 Source selection is branch-based in `run_scan`: `ALL` takes precedence, then `EU`, then `ES`, and only otherwise is the supplied list used as individual sources. A Lambda event containing both `EU` and `ES` therefore runs `EU` and ignores the `ES` branch; the groups are not merged. The CLI supplies one `--source` value at a time.
 
-The `ES` group contains six sources, including Guaguas Municipales; `EU` remains the three-source European group; `ALL` contains nine sources. Guaguas always evaluates its inclusive application interval against the resolved execution date in online scans, including a CLI run without `--date`.
+The `ES` group contains eight sources, including Guaguas Municipales, GEURSA, and GSC; `EU` remains the three-source European group; `ALL` contains eleven sources. Guaguas always evaluates its inclusive application interval against the resolved execution date in online scans, including a CLI run without `--date`. GEURSA includes every process under the website's `Convocatorias en vigor` heading regardless of its application deadline, and a historical target date does not retrieve historical page state. GSC uses the current `#seleccion` list, skips administrative/cancelled notices and invalid or missing leading dates, and does not treat its inferred end date as an official deadline.
+
+For offline GSC HTML, `.html` and `.htm` files are routed by a bounded `gsc` filename token or the parser's structural `#seleccion` plus holder signature; unknown-extension HTML signatures use the same structural recognition. A programmatic `run_scan(local_file=..., target_date=...)` passes that date to GSC; otherwise local GSC parsing uses `date.today()`. Future scheduled `ALL`/default and `ES` scans will include GSC after deployment. `EU` and explicit selections of other individual sources will not. No schedule change is required or performed by this integration. Because no persistent cross-run deduplication exists, repeated scans during the same GSC window can repeat findings and notifications.
 
 ## Environment variables
 

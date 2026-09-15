@@ -19,6 +19,17 @@ Source of truth: [`interfaces.py`](../../src/job_finder/interfaces.py), [`main.p
 9. Update `known-limitations.md` for optional dependencies or unverified live behaviour.
 10. Run the focused tests and the full suite where practical, then review the diff and document unrun external checks.
 
+For a server-rendered search/detail portal such as Indra, keep query discovery,
+pagination, identity, detail fetching, and source-specific eligibility inside
+the source modules. Use an exact blank search for the default catalogue, treat
+configured discovery terms as an explicit narrowing choice, and make no-match
+recommendations distinguishable from genuine query rows. Deduplicate stable
+identities before constructing `BOPage` objects so downstream URL identity and
+AI batching cannot multiply one logical job. If a geographic or contractual
+rule is not already represented by the shared model, keep the evidence-based
+prefilter source-local and retain raw wording rather than introducing a global
+constraints subsystem.
+
 ## Acceptance questions
 
 - Can an agent identify the source's fetcher, parser, input fixture, and test from the source index?

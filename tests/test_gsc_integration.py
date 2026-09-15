@@ -128,10 +128,10 @@ def test_source_groups_include_gsc_once_and_eu_remains_unchanged(monkeypatch):
 
     for selected, expected, count in (
         ("GSC", {"GSC"}, 1),
-        ("ES", {"BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "GEURSA", "GSC", "AENA"}, 8),
+        ("ES", {"BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "GEURSA", "GSC", "AENA", "INDRA"}, 9),
         ("EU", {"EPSO", "EURES", "EULISA"}, 3),
-        ("ALL", {"BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "GEURSA", "GSC", "AENA", "EPSO", "EURES", "EULISA"}, 11),
-        (None, {"BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "GEURSA", "GSC", "AENA", "EPSO", "EURES", "EULISA"}, 11),
+        ("ALL", {"BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "GEURSA", "GSC", "AENA", "INDRA", "EPSO", "EURES", "EULISA"}, 12),
+        (None, {"BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "GEURSA", "GSC", "AENA", "INDRA", "EPSO", "EURES", "EULISA"}, 12),
     ):
         calls.clear()
         kwargs = {"sources": [selected], "no_ai": True} if selected else {"no_ai": True}

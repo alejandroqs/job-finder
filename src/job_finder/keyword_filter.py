@@ -26,6 +26,7 @@ class KeywordFilter:
         self.raw_exclusions: List[str] = []
         self.raw_title_reject_absolute: List[str] = []
         self.raw_title_reject_relative: List[str] = []
+        self.portal_search_keywords: List[str] = []
         self.reject_absolute_patterns: List[re.Pattern] = []
         self.reject_relative_patterns: List[re.Pattern] = []
         
@@ -108,12 +109,17 @@ class KeywordFilter:
             ]
         else:
             with open(self.config_path, "r", encoding="utf-8") as f:
-                config = yaml.safe_load(f)
+                config = yaml.safe_load(f) or {}
+                if not isinstance(config, dict):
+                    raise ValueError(
+                        f"Invalid keyword configuration in {self.config_path}: expected a mapping"
+                    )
                 self.raw_it_keywords = config.get("it_keywords", [])
                 self.raw_anchors = config.get("contest_anchors", [])
                 self.raw_exclusions = config.get("boilerplate_exclusions", [])
                 self.raw_title_reject_absolute = config.get("title_reject_absolute", [])
                 self.raw_title_reject_relative = config.get("title_reject_relative", [])
+                self.portal_search_keywords = self._load_portal_search_keywords(config)
 
         # Compile accent-stripped versions of patterns for matching against accent-stripped text
         self.it_patterns = [
@@ -131,6 +137,24 @@ class KeywordFilter:
         self.reject_relative_patterns = [
             re.compile(strip_accents(pat), re.IGNORECASE) for pat in self.raw_title_reject_relative
         ]
+
+    def _load_portal_search_keywords(self, config: dict) -> List[str]:
+        """Load discovery-only portal terms without involving regex matching."""
+        if "portal_search_keywords" not in config:
+            return []
+
+        value = config["portal_search_keywords"]
+        if not isinstance(value, list) or any(not isinstance(term, str) for term in value):
+            raise ValueError(
+                f"Invalid portal_search_keywords in {self.config_path}: expected a list of strings"
+            )
+
+        terms: List[str] = []
+        for term in value:
+            trimmed = term.strip()
+            if trimmed and trimmed not in terms:
+                terms.append(trimmed)
+        return terms
 
     def search_page(self, page: BOPage) -> List[ParsedAnnouncement]:
         """

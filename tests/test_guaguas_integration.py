@@ -66,8 +66,9 @@ def test_source_groups_include_guaguas_and_keep_eu_unchanged(monkeypatch):
         "GEURSA",
         "GSC",
         "AENA",
+        "INDRA",
     }
-    assert len(calls) == 8
+    assert len(calls) == 9
 
     calls.clear()
     main.run_scan(sources=["EU"], no_ai=True)
@@ -85,11 +86,12 @@ def test_source_groups_include_guaguas_and_keep_eu_unchanged(monkeypatch):
         "GEURSA",
         "GSC",
         "AENA",
+        "INDRA",
         "EPSO",
         "EURES",
         "EULISA",
     }
-    assert len(calls) == 11
+    assert len(calls) == 12
 
 
 def test_offline_detection_reads_beyond_header_prefix(tmp_path, capsys):

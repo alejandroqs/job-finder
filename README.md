@@ -3,7 +3,7 @@
 [![Python Version](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 [![Testing](https://img.shields.io/badge/tests-pytest-green.svg)](https://pytest.org/)
 
-A Python command-line tool and AWS Lambda workload that monitors BOP Las Palmas, BOC, BOE, Sagulpa, Guaguas Municipales, GEURSA, GSC, Aena, EPSO, EURES, and eu-LISA to identify Information Technology and Software Engineering opportunities.
+A Python command-line tool and AWS Lambda workload that monitors BOP Las Palmas, BOC, BOE, Sagulpa, Guaguas Municipales, GEURSA, GSC, Aena, Indra Group, EPSO, EURES, and eu-LISA to identify Information Technology and Software Engineering opportunities.
 
 Official sources expose different PDF, HTML, RSS, CSV, JSON, and XML formats. The project uses source-specific fetchers and parsers, shared normalization models, keyword filtering, optional Gemini validation, and Markdown or HTML exports.
 
@@ -31,6 +31,8 @@ graph TD
     CLI --> GeursaParser[GeursaParser]
     CLI --> GSCFetcher[GSCFetcher]
     CLI --> GSCParser[GSCParser]
+    CLI --> IndraFetcher[IndraFetcher]
+    CLI --> IndraParser[IndraParser]
     CLI --> BOPParser[BOPParser]
     CLI --> BOCParser[BOCParser]
     CLI --> BOEParser[BOEParser]
@@ -56,6 +58,8 @@ graph TD
     GeursaParser -- Implements --> IParser
     GSCFetcher -- Implements --> IFetcher
     GSCParser -- Implements --> IParser
+    IndraFetcher -- Implements --> IFetcher
+    IndraParser -- Implements --> IParser
     
     subgraph Utility Layers
         Cleaner[TextCleaner Pipeline]
@@ -115,7 +119,7 @@ graph TD
 The tool exposes two CLI commands: `job-finder` and the newly mapped `bo-finder`.
 
 ### 1. Basic Run (Scans the selected sources with smart fallback)
-Downloads and processes the selected sources; the default `ALL` group includes all eleven integrations and outputs matches.
+Downloads and processes the selected sources; the default `ALL` group includes all twelve integrations and outputs matches.
 
 **Smart Fallbacks**: If today's gazettes are not yet published or it is a weekend/holiday:
 * For **BOP**: The tool automatically scrapes the index to find the latest published bulletin.
@@ -133,7 +137,7 @@ python -m job_finder.main --date 2026-05-21
 ```
 
 ### 3. Filter by Source
-Target a source or group (`BOP`, `BOC`, `BOE`, `SAGULPA`, `GUAGUAS`, `GEURSA`, `GSC`, `AENA`, `EPSO`, `EURES`, `EULISA`, `ES`, `EU`, or `ALL`; default is `ALL`):
+Target a source or group (`BOP`, `BOC`, `BOE`, `SAGULPA`, `GUAGUAS`, `GEURSA`, `GSC`, `AENA`, `INDRA`, `EPSO`, `EURES`, `EULISA`, `ES`, `EU`, or `ALL`; default is `ALL`):
 ```powershell
 python -m job_finder.main --source BOE
 ```
@@ -145,6 +149,8 @@ python -m job_finder.main --file tests/fixtures/boe_sample.xml --no-ai
 ```
 
 GSC reads only direct cards in the current `#seleccion` list holder. It accepts a leading `DD/MM/YYYY` or `DD-MM-YYYY` publication date and monitors the inclusive eight-date window through publication plus seven days; that inferred date is a monitoring heuristic, not an official application deadline. Administrative, result, applicant-list, correction, subsanación, exam/stage, and cancelled notices are excluded before IT filtering. A historical date does not retrieve historical website state, and repeated scans in the same window can repeat findings because there is no persistent cross-run deduplication.
+
+Indra Group uses the server-rendered `https://careers.indragroup.com/search/` endpoint. By default it performs one blank `q=` search and follows the official pagination links; an optional top-level `portal_search_keywords` list in the selected YAML file deliberately narrows discovery and is independent of the shared include/exclude rules. `#noresults` is authoritative even when the page contains suggestion rows. The source keeps official numeric IDs and clean official URLs, deduplicates before detail retrieval and AI, and applies geographic prefiltering from published structured mode/location evidence: `Remote`/`Remoto` and `Indiferente` pass, explicit Gran Canaria locations can pass, and unknown or unsupported evidence does not become remote. Offline listing snapshots cannot invent missing modality or fetch details. The shared employment-anchor filter and the existing Gemini prompt remain unchanged; Gemini receives only the first 1,500 characters, and no persistent cross-run deduplication exists. A 2026-09-15 read-only discovery check reached the public portal but was incomplete: 31 pages, 763 genuine rows, 733 unique IDs, contradictory totals, and a repeated pagination page. Lambda runtime suitability remains unverified.
 
 ### 5. Custom Keyword Filtering
 Pass a custom `keywords.yaml` file to modify IT keywords or employment anchors on the fly:

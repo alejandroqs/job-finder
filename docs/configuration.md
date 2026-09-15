@@ -13,8 +13,8 @@ Source of truth: [`main.py`](../src/job_finder/main.py), [`.env.example`](../.en
 | Option | Values/default | Effect |
 | --- | --- | --- |
 | `--date` | `YYYY-MM-DD`, omitted by default | Scans the supplied target date. Mutually exclusive with `--file`. |
-| `--file` | local path, omitted by default | Parses an offline PDF, XML/RSS, HTML, CSV, or JSON file and auto-detects the source. Mutually exclusive with `--date`. |
-| `--source`, `-s` | one of `BOP`, `BOC`, `BOE`, `SAGULPA`, `GUAGUAS`, `GEURSA`, `GSC`, `AENA`, `EPSO`, `EURES`, `EULISA`, `EU`, `ES`, `ALL`; default `ALL` | Selects individual sources or a group. |
+| `--file` | local path, omitted by default | Parses an offline PDF, XML/RSS, HTML, CSV, or JSON file and auto-detects the source. Mutually exclusive with `--date`. Indra routing accepts a bounded detail signature or an explicitly named `indra` file, while detail parsing still requires a reliable official identity; listing snapshots do not infer missing modality. |
+| `--source`, `-s` | one of `BOP`, `BOC`, `BOE`, `SAGULPA`, `GUAGUAS`, `GEURSA`, `GSC`, `AENA`, `INDRA`, `EPSO`, `EURES`, `EULISA`, `EU`, `ES`, `ALL`; default `ALL` | Selects individual sources or a group. |
 | `--config` | optional path | Replaces the default `src/job_finder/keywords.yaml`. |
 | `--no-ai` | false by default | Skips the Gemini validation stage. It does not disable fetching, exports, or notifications. |
 | `--output` | `findings.md` | Destination overwritten by the selected exporter. |
@@ -34,9 +34,9 @@ Missing or non-dictionary input defaults to all sources and AI enabled. Lambda a
 
 Source selection is branch-based in `run_scan`: `ALL` takes precedence, then `EU`, then `ES`, and only otherwise is the supplied list used as individual sources. A Lambda event containing both `EU` and `ES` therefore runs `EU` and ignores the `ES` branch; the groups are not merged. The CLI supplies one `--source` value at a time.
 
-The `ES` group contains eight sources, including Guaguas Municipales, GEURSA, and GSC; `EU` remains the three-source European group; `ALL` contains eleven sources. Guaguas always evaluates its inclusive application interval against the resolved execution date in online scans, including a CLI run without `--date`. GEURSA includes every process under the website's `Convocatorias en vigor` heading regardless of its application deadline, and a historical target date does not retrieve historical page state. GSC uses the current `#seleccion` list, skips administrative/cancelled notices and invalid or missing leading dates, and does not treat its inferred end date as an official deadline.
+The `ES` group contains nine sources, including Guaguas Municipales, GEURSA, GSC, and Indra Group; `EU` remains the three-source European group; `ALL` contains twelve sources. Indra's inclusion in `ES` is a grouping convention, not a country filter. Guaguas always evaluates its inclusive application interval against the resolved execution date in online scans, including a CLI run without `--date`. GEURSA includes every process under the website's `Convocatorias en vigor` heading regardless of its application deadline, and a historical target date does not retrieve historical page state. GSC uses the current `#seleccion` list, skips administrative/cancelled notices and invalid or missing leading dates, and does not treat its inferred end date as an official deadline.
 
-For offline GSC HTML, `.html` and `.htm` files are routed by a bounded `gsc` filename token or the parser's structural `#seleccion` plus holder signature; unknown-extension HTML signatures use the same structural recognition. A programmatic `run_scan(local_file=..., target_date=...)` passes that date to GSC; otherwise local GSC parsing uses `date.today()`. Future scheduled `ALL`/default and `ES` scans will include GSC after deployment. `EU` and explicit selections of other individual sources will not. No schedule change is required or performed by this integration. Because no persistent cross-run deduplication exists, repeated scans during the same GSC window can repeat findings and notifications.
+For offline GSC HTML, `.html` and `.htm` files are routed by a bounded `gsc` filename token or the parser's structural `#seleccion` plus holder signature; unknown-extension HTML signatures use the same structural recognition. A programmatic `run_scan(local_file=..., target_date=...)` passes that date to GSC; otherwise local GSC parsing uses `date.today()`. Future scheduled `ALL`/default and `ES` scans will include GSC and Indra after deployment. `EU` and explicit selections of other individual sources will not. No schedule change is required or performed by this integration. Because no persistent cross-run deduplication exists, repeated scans during the same GSC or Indra run window can repeat findings and notifications.
 
 ## Environment variables
 
@@ -55,4 +55,21 @@ Do not commit real values. `python-dotenv` is loaded opportunistically by the lo
 
 [`keywords.yaml`](../src/job_finder/keywords.yaml) supplies Spanish IT patterns, employment anchors, boilerplate exclusions, and absolute or relative title-rejection patterns. Matching strips accents and is case-insensitive. Dedicated EU sources use the English patterns defined in [`KeywordFilter`](../src/job_finder/keyword_filter.py).
 
+`portal_search_keywords` is an independent, discovery-only list consumed by
+Indra. A missing key or empty list performs one blank full-catalogue search.
+Non-empty values are trimmed, blank entries are discarded, exact duplicates are
+removed in order, and one exact portal query is run per remaining value. The
+list must contain only strings. It does not expand `it_keywords`, does not
+change include/exclude regex behaviour, does not append query text to candidate
+descriptions or matched keywords, and does not change the Gemini prompt. A
+non-empty list deliberately narrows discovery and cannot claim complete
+catalogue coverage.
+
 [`config_prompts.yaml`](../src/job_finder/config_prompts.yaml) supplies the system prompt and user prompt template for Gemini. The validator inserts a JSON job list into the template and expects a structured response matching its Pydantic schema. Prompt changes can alter filtering outcomes and should be reviewed as behaviour changes.
+
+The unchanged Spanish/general path still requires an existing IT keyword and
+employment anchor after boilerplate removal. Indra does not invent public-
+employment anchors, so genuine private-sector content without an existing
+anchor can be rejected. Gemini receives at most the first 1,500 characters of
+the normalized paragraph; the current prompt is biased toward Spanish and EU
+public employment and does not establish international contractual eligibility.

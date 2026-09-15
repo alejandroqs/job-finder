@@ -63,4 +63,8 @@ title_reject_relative:
   - "mantenimiento"
   - "bomber[oa]s?"
 
+# Optional Indra discovery terms. An empty list keeps the full blank catalogue search.
+# Non-empty values deliberately narrow discovery and do not change shared filtering.
+portal_search_keywords: []
+
 

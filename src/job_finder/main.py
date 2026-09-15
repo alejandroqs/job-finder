@@ -37,6 +37,10 @@ from job_finder.geursa_parser import GeursaParser
 from job_finder.gsc_fetcher import GSCFetcher
 from job_finder.gsc_parser import GSCParser
 
+# Indra Group Components
+from job_finder.indra_fetcher import IndraFetcher
+from job_finder.indra_parser import IndraParser
+
 # Aena Components
 from job_finder.aena_fetcher import AenaFetcher
 from job_finder.aena_parser import AenaParser
@@ -159,6 +163,8 @@ def print_source_header(source_name: str) -> None:
         title = "GEURSA - EMPLOYMENT SELECTION PROCESSES"
     elif source_name == "GSC":
         title = "GSC - HEALTH AND SAFETY EMPLOYMENT PROCESSES"
+    elif source_name == "INDRA":
+        title = "INDRA GROUP - CAREERS PORTAL"
     elif source_name == "EPSO":
         title = "EPSO - EUROPEAN UNION OPEN DATA"
     elif source_name == "EURES":
@@ -187,9 +193,19 @@ def _is_gsc_html(html: str) -> bool:
     return GSCParser.has_supported_structure(html)
 
 
+def _is_indra_html(html: str) -> bool:
+    """Recognize Indra detail HTML using bounded fields and official identity."""
+    return IndraParser.has_supported_structure(html)
+
+
 def _has_bounded_gsc_filename(filename: str) -> bool:
     """Recognize a GSC filename token without matching words such as ``gscout``."""
     return re.search(r"(?<![a-z0-9])gsc(?![a-z0-9])", filename.casefold()) is not None
+
+
+def _has_bounded_indra_filename(filename: str) -> bool:
+    """Recognize an explicitly named Indra snapshot without matching indradar."""
+    return re.search(r"(?<![a-z0-9])indra(?![a-z0-9])", filename.casefold()) is not None
 
 
 def _scan_single_source(
@@ -366,6 +382,20 @@ def _scan_single_source(
             except Exception as e:
                 print(f"❌ GSC download/parse failed: {e}", file=sys.stderr)
 
+        elif src == "INDRA":
+            print(
+                "📅 Indra discovery: full blank catalogue search by default; "
+                "configured portal_search_keywords narrow discovery only"
+            )
+            fetcher = IndraFetcher()
+            indra_parser = IndraParser(fetcher=fetcher, keyword_filter=kf)
+
+            try:
+                print("🌐 Connecting to careers.indragroup.com search...")
+                pages = indra_parser.scan(kf.portal_search_keywords)
+            except Exception as e:
+                print(f"❌ Indra discovery/detail scan failed: {e}", file=sys.stderr)
+
         elif src == "SAGULPA":
             print(f"📅 Target Date: {resolved_date.strftime('%Y-%m-%d') if (target_date or is_lambda) else 'ALL ACTIVE OPENINGS'}")
             fetcher = SagulpaFetcher()
@@ -441,6 +471,9 @@ def _scan_single_source(
             print(f"🔎 Scanning {len(pages)} pages/entries in this bulletin...")
             for page in pages:
                 src_announcements.extend(kf.search_page(page))
+
+            if src == "INDRA":
+                print(f"📊 INDRA first-filter matches: {len(src_announcements)}")
             
             if src_announcements:
                 print(f"🎉 Success: Found {len(src_announcements)} matching announcement(s)!")
@@ -507,7 +540,7 @@ def run_scan(
             except Exception:
                 source_type = "BOC"
         elif suffix in (".html", ".htm"):
-            # Distinguish between GEURSA, Guaguas, SAGULPA, EULISA, and AENA.
+            # Distinguish between bounded source layouts and named HTML snapshots.
             file_name = local_file.name.lower()
             if "geursa" in file_name:
                 source_type = "GEURSA"
@@ -515,6 +548,8 @@ def run_scan(
                 source_type = "GUAGUAS"
             elif _has_bounded_gsc_filename(file_name):
                 source_type = "GSC"
+            elif _has_bounded_indra_filename(file_name):
+                source_type = "INDRA"
             elif "eulisa" in file_name:
                 source_type = "EULISA"
             elif "aena" in file_name:
@@ -530,6 +565,8 @@ def run_scan(
                         source_type = "GUAGUAS"
                     elif _is_gsc_html(html):
                         source_type = "GSC"
+                    elif _is_indra_html(html):
+                        source_type = "INDRA"
                     elif "eulisa" in html_lower:
                         source_type = "EULISA"
                     elif "aena" in html_lower:
@@ -559,6 +596,8 @@ def run_scan(
                         source_type = "GUAGUAS"
                     elif _is_gsc_html(content):
                         source_type = "GSC"
+                    elif _is_indra_html(content):
+                        source_type = "INDRA"
                     elif "<rss" in content_lower:
                         source_type = "BOC"
                     elif "<html" in content_lower or "<!doctype" in content_lower:
@@ -566,6 +605,8 @@ def run_scan(
                             source_type = "GEURSA"
                         elif _has_bounded_gsc_filename(local_file.name):
                             source_type = "GSC"
+                        elif _has_bounded_indra_filename(local_file.name):
+                            source_type = "INDRA"
                         elif "eulisa" in local_file.name.lower():
                             source_type = "EULISA"
                         elif "aena" in local_file.name.lower():
@@ -584,6 +625,8 @@ def run_scan(
                         source_type = "GUAGUAS"
                     elif _has_bounded_gsc_filename(local_file.name) or _is_gsc_html(content):
                         source_type = "GSC"
+                    elif _has_bounded_indra_filename(local_file.name) or _is_indra_html(content):
+                        source_type = "INDRA"
                     elif "eulisa" in local_file.name.lower():
                         source_type = "EULISA"
                     elif "aena" in local_file.name.lower():
@@ -603,6 +646,8 @@ def run_scan(
                         content = f.read()
                     if _is_gsc_html(content):
                         source_type = "GSC"
+                    elif _is_indra_html(content):
+                        source_type = "INDRA"
                     else:
                         print(f"❌ Error: Unrecognized file type for '{local_file.name}'. Must be PDF, XML, HTML, CSV, or JSON.", file=sys.stderr)
                         return []
@@ -626,6 +671,8 @@ def run_scan(
                 parser_inst = GeursaParser()
             elif source_type == "GSC":
                 parser_inst = GSCParser()
+            elif source_type == "INDRA":
+                parser_inst = IndraParser(keyword_filter=kf)
             elif source_type == "SAGULPA":
                 parser_inst = SagulpaParser()
             elif source_type == "AENA":
@@ -660,11 +707,11 @@ def run_scan(
         
         # Decide which sources to run
         if not sources or "ALL" in sources:
-            sources_to_run = ["BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "GEURSA", "GSC", "AENA", "EPSO", "EURES", "EULISA"]
+            sources_to_run = ["BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "GEURSA", "GSC", "AENA", "INDRA", "EPSO", "EURES", "EULISA"]
         elif "EU" in sources:
             sources_to_run = ["EPSO", "EURES", "EULISA"]
         elif "ES" in sources:
-            sources_to_run = ["BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "GEURSA", "GSC", "AENA"]
+            sources_to_run = ["BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "GEURSA", "GSC", "AENA", "INDRA"]
         else:
             sources_to_run = sources
         
@@ -782,14 +829,14 @@ def main() -> None:
     group.add_argument(
         "--file",
         type=Path,
-        help="Local file path to scan (.pdf for BOP, .xml/.rss for BOC/BOE, .csv for EPSO, .json for EURES, .html for GSC/GEURSA/Guaguas/Sagulpa/Aena/eu-LISA)"
+        help="Local file path to scan (.pdf for BOP, .xml/.rss for BOC/BOE, .csv for EPSO, .json for EURES, .html for INDRA/GSC/GEURSA/Guaguas/Sagulpa/Aena/eu-LISA)"
     )
     parser.add_argument(
         "--source",
         "-s",
-        choices=["BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "GEURSA", "GSC", "AENA", "EPSO", "EURES", "EULISA", "EU", "ES", "ALL"],
+        choices=["BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "GEURSA", "GSC", "AENA", "INDRA", "EPSO", "EURES", "EULISA", "EU", "ES", "ALL"],
         default="ALL",
-        help="Target official source(s) to scan (use 'EU' for European Union, 'ES' for Spanish, or an individual source such as GSC or GEURSA)"
+        help="Target official source(s) to scan (use 'EU' for European Union, 'ES' for Spanish, or an individual source such as INDRA, GSC or GEURSA)"
     )
     parser.add_argument(
         "--config",

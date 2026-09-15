@@ -3,6 +3,39 @@ from pathlib import Path
 import pytest
 
 from job_finder.keyword_filter import KeywordFilter
+from job_finder.interfaces import BOPage
+
+
+@pytest.mark.parametrize("description", [
+    "Cybersecurity Analyst. Responsibilities: investigate alerts.",
+    "Buscamos Analista SOC para monitorizar amenazas.",
+    "Pentester. Requirements: assess client infrastructure.",
+    "IAM Engineer. Responsibilities: manage access policies.",
+    "Information security governance auditor. Qualifications: audit experience.",
+    "Consultor GRC de seguridad de la información. Requisitos: auditoría ENS.",
+    "OT security specialist. Duties: protect operational technology.",
+    "Vaga de cibersegurança. Responsabilidades: análise de ameaças.",
+    "AI Engineer. Requirements: Python and model evaluation.",
+    "Convocatoria de plaza de técnico de informática.",
+    "Buscamos especialista de ciberseguridad. Conocimientos básicos de informática.",
+])
+def test_general_filter_retains_public_and_corporate_technology_jobs(description):
+    page = BOPage(page_number=1, text=description, source="INDRA")
+    assert len(KeywordFilter().search_page(page)) == 1
+
+
+@pytest.mark.parametrize("description", [
+    "Security guard. Responsibilities: patrol buildings.",
+    "Financial compliance officer. Requirements: accounting experience.",
+    "Buscamos recepcionista. Conocimientos básicos de informática.",
+    "Vacante de auxiliar administrativo. Informática a nivel de usuario.",
+    "SOC coordinator. Requirements: scheduling experience.",
+    "GRC consultant. Requirements: financial reporting experience.",
+    "Cybersecurity news: a new vulnerability was disclosed.",
+])
+def test_general_filter_rejects_unrelated_or_insufficient_evidence(description):
+    page = BOPage(page_number=1, text=description, source="INDRA")
+    assert KeywordFilter().search_page(page) == []
 
 def test_should_reject_title():
     # Use default config path (should load the default config which has our new rejection rules)

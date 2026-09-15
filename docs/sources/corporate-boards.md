@@ -91,7 +91,7 @@ so Mexico plus Remote is retained. A failed or identity-mismatched detail is
 skipped with a diagnostic and never treated as geographic evidence. The source
 uses the unchanged shared title, IT-keyword, and employment-anchor filter both
 offline and after online detail extraction, then the existing optional Gemini
-stage; its current public-employment prompt does not establish international
+stage; its role-relevance prompt does not establish international
 contractual eligibility.
 
 ## Aena

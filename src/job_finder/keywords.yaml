@@ -1,5 +1,6 @@
-# BOP Las Palmas Job Monitor - Keyword Configuration
-# You can customize these regex patterns and anchor terms to refine the search.
+# Shared Spanish/general-source relevance configuration.
+# Discovery terms below are separate from these relevance rules.
+# Matching is case-insensitive and accent-insensitive. Patterns are regexes.
 
 # IT-related keyword regex patterns (case-insensitive)
 it_keywords:
@@ -25,8 +26,39 @@ it_keywords:
   - "machine\\s+learning"
   - "aprendizaje\\s+autom[aá]tico"
   - "deep\\s+learning"
+  # Software, data/AI and platform roles in corporate job descriptions.
+  - '\bsoftware\s+(?:engineer|developer|architect|engineering)\b'
+  - '\b(?:backend|back-end|frontend|front-end|full[ -]?stack)\b'
+  - '\b(?:python|pyspark|databricks)\b'
+  - '\b(?:artificial\s+intelligence|generative\s+ai|genai|mlops|llmops)\b'
+  - '\b(?:ai|ml|nlp|llm)\s+(?:engineer|developer|researcher|specialist)\b'
+  - '\b(?:cloud|platform|devops|data)\s+(?:engineer|developer|architect|specialist)\b'
+  - '\b(?:devops|site\s+reliability\s+engineer|distributed\s+systems)\b'
+  # Cybersecurity includes operations, engineering, offensive security and GRC.
+  # Avoid standalone security/seguridad, SOC, IAM or GRC: they are ambiguous.
+  - '\bcyber[ -]?security\b'
+  - '\bciberseguran[cç]a\b'
+  - '\b(?:information|infosec|network|application|cloud|endpoint|product)\s+security\b'
+  - '\b(?:infosec|appsec|devsecops)\b'
+  - '\b(?:ot|operational\s+technology)\s+security\b'
+  - '\bseguridad\s+(?:de\s+la\s+informacion|informatica|de\s+(?:redes|aplicaciones))\b'
+  - '\bseguranca\s+da\s+informacao\b'
+  - '\b(?:soc|csirt|cert)\s+(?:analyst|engineer|analista|specialist)\b'
+  - '\b(?:analista|ingeniero|ingeniera|tecnico|tecnica)\s+(?:de\s+)?(?:soc|ciberseguridad)\b'
+  - '\bsecurity\s+(?:operations\s+cent(?:er|re)|engineer|analyst|architect|consultant)\b'
+  - '\b(?:penetration\s+test(?:er|ing)|pentest(?:er|ing)?|ethical\s+hack(?:er|ing))\b'
+  - '\b(?:hacking\s+etico|red\s+team|blue\s+team|threat\s+hunt(?:er|ing)|threat\s+intelligence)\b'
+  - '\b(?:digital\s+forensics|analisis\s+forense\s+digital|dfir|malware\s+analy(?:st|sis))\b'
+  - '\b(?:vulnerability\s+management|gestion\s+de\s+vulnerabilidades)\b'
+  - '\b(?:cyber|security)\s+incident\s+response\b'
+  - '\b(?:identity\s+and\s+access\s+management|privileged\s+access\s+management)\b'
+  - '\b(?:iam|pam|siem|soar)\s+(?:engineer|analyst|architect|consultant|specialist)\b'
+  - '\b(?:consultor|consultora|especialista|ingeniero|ingeniera)\s+(?:de\s+|en\s+)?(?:iam|pam|siem|soar)\b'
+  - '\b(?:information\s+security|cybersecurity|cyber\s+risk)\s+(?:governance|risk|compliance|audit)\b'
+  - '\b(?:grc|iso\s*27001|ens)\b.{0,60}\b(?:ciberseguridad|cybersecurity|seguridad\s+de\s+la\s+informacion)\b'
+  - '\b(?:ciso|chief\s+information\s+security\s+officer)\b'
 
-# Public contest / employment anchors (case-insensitive)
+# Public contest and corporate employment evidence (case-insensitive).
 # The text block must contain at least one of these to be flagged (prevents false positives)
 contest_anchors:
   - "plaza"
@@ -40,6 +72,13 @@ contest_anchors:
   - "contrataci[oó]n"
   - "bolsa\\s+de\\s+reserva"
   - "bolsa\\s+extraordinaria"
+  - '\b(?:vacantes?|ofertas?\s+de\s+empleo|puesto\s+de\s+trabajo)\b'
+  - '\b(?:buscamos|seleccionamos|incorporar|requisitos|responsabilidades|funciones)\b'
+  - '\b(?:que\s+haras|que\s+buscamos\s+en\s+ti)\b'
+  - '\b(?:hiring|vacanc(?:y|ies)|job\s+opening|job\s+description|employment)\b'
+  - '\b(?:requirements|responsibilities|qualifications|duties)\b'
+  - '\b(?:we\s+are\s+looking\s+for|join\s+our\s+team|you\s+will)\b'
+  - '\b(?:vaga|vagas|requisitos|responsabilidades|contratacao)\b'
 
 # Spanish administrative/boilerplate expressions that generate false positives
 # If these match in the text, their occurrences are temporarily ignored during IT keyword scanning.
@@ -52,6 +91,9 @@ boilerplate_exclusions:
   - "plataformas?\\s+inform[aá]ticas?"
   - "incidencias\\s+inform[aá]ticas?"
   - "soportes?\\s+inform[aá]ticos?"
+  # Remove incidental skills phrases, not whole candidates or real security duties.
+  - '\b(?:basic\s+computer\s+(?:skills|literacy)|computer\s+literate)\b'
+  - '\b(?:conocimientos?\s+basicos?\s+de\s+informatica|informatica\s+a\s+nivel\s+(?:de\s+)?usuario)\b'
 
 # Absolute rejection keywords (case-insensitive). If found in the title, the job is immediately skipped.
 title_reject_absolute:
@@ -63,7 +105,8 @@ title_reject_relative:
   - "mantenimiento"
   - "bomber[oa]s?"
 
-# Optional Indra discovery terms. An empty list keeps the full blank catalogue search.
+# Generic portal discovery terms, currently consumed by Indra only.
+# An empty list keeps the full blank catalogue search, including cybersecurity.
 # Non-empty values deliberately narrow discovery and do not change shared filtering.
 portal_search_keywords: []
 

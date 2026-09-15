@@ -201,6 +201,11 @@ def test_sagulpa_data_ai_job_detection(sagulpa_list_html_path, sagulpa_detail_2_
     # Verify that KeywordFilter successfully detects this page as an IT job opportunity
     kf = KeywordFilter()
     matches = kf.search_page(pages[0])
-    assert len(matches) == 1
+    # Corporate anchors also retain the title/vacancy-count paragraph.
+    # The shared filter returns paragraphs, not one result per advert.
+    assert len(matches) == 2
+    assert all(match.url == pages[0].url for match in matches)
+    assert "Vacantes: 1" in matches[0].description
+    assert "buscamos incorporar" in matches[1].description
     assert matches[0].organism == "SAGULPA"
     assert any("inteligencia" in k or "ingenier" in k for k in matches[0].matched_keywords)

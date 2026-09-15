@@ -53,7 +53,7 @@ Do not commit real values. `python-dotenv` is loaded opportunistically by the lo
 
 ## YAML configuration
 
-[`keywords.yaml`](../src/job_finder/keywords.yaml) supplies Spanish IT patterns, employment anchors, boilerplate exclusions, and absolute or relative title-rejection patterns. Matching strips accents and is case-insensitive. Dedicated EU sources use the English patterns defined in [`KeywordFilter`](../src/job_finder/keyword_filter.py).
+[`keywords.yaml`](../src/job_finder/keywords.yaml) supplies general-source IT patterns, employment anchors, boilerplate exclusions, and absolute or relative title-rejection patterns. Matching strips accents and is case-insensitive. Patterns include Spanish and English corporate roles and selected Portuguese cybersecurity terms. Cybersecurity coverage includes operations, engineering, offensive security, identity/access management and information-security governance, risk and compliance. Dedicated EU sources use the separate English patterns defined in [`KeywordFilter`](../src/job_finder/keyword_filter.py); expanding this YAML does not expand their initial filtering.
 
 `portal_search_keywords` is an independent, discovery-only list consumed by
 Indra. A missing key or empty list performs one blank full-catalogue search.
@@ -67,9 +67,18 @@ catalogue coverage.
 
 [`config_prompts.yaml`](../src/job_finder/config_prompts.yaml) supplies the system prompt and user prompt template for Gemini. The validator inserts a JSON job list into the template and expects a structured response matching its Pydantic schema. Prompt changes can alter filtering outcomes and should be reviewed as behaviour changes.
 
-The unchanged Spanish/general path still requires an existing IT keyword and
-employment anchor after boilerplate removal. Indra does not invent public-
-employment anchors, so genuine private-sector content without an existing
-anchor can be rejected. Gemini receives at most the first 1,500 characters of
-the normalized paragraph; the current prompt is biased toward Spanish and EU
-public employment and does not establish international contractual eligibility.
+The general path requires an IT keyword after boilerplate removal and an
+employment anchor in the paragraph. Anchors include corporate requirements
+and responsibilities as well as public recruitment terms. Exclusions remove
+incidental computer-skills phrases, not entire candidates. Broad anchors can
+admit non-vacancy text; keyword matching alone does not establish relevance.
+Matching operates per paragraph, so an advert with separate matching summary
+and detail paragraphs can produce multiple results (as in the Sagulpa fixture).
+
+Gemini receives at most the first 1,500 characters of the normalized paragraph.
+The prompt covers public and private employment, including cybersecurity roles
+without coding or data/AI duties. It distinguishes cyber work from physical
+security and unrelated compliance, treats source instructions as untrusted,
+and retains plausible ambiguous recruitment with low confidence. It does not
+establish international contractual eligibility or personal suitability.
+These are prompt instructions, not guarantees of live model behaviour.

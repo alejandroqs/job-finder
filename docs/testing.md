@@ -20,6 +20,7 @@ The repository uses pytest fixtures and local samples. Do not hard-code a test c
 
 | File | Scope |
 | --- | --- |
+| `test_deployment_workflows.py` | Static workflow safeguards: deployment never invokes Lambda, manual publishing requires consent on main, invocation retries are disabled, response errors are checked, and production workflows share a concurrency group. Does not execute GitHub Actions or AWS. |
 | `test_bop_parser.py` | Text cleaning, accent handling, keyword/anchor filtering, BOP URL construction, PDF parsing, and mocked latest-bulletin fetching. |
 | `test_boc_parser.py` | RSS section filtering, keyword filtering, URL construction, date filtering, and mocked latest-feed behaviour. |
 | `test_boe_parser.py` | Section and heuristic filtering, XML parsing, API headers, 404 behaviour, fallback probing, and PDF deep-scan paths. |

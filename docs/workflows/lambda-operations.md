@@ -4,7 +4,7 @@ Purpose: document the scheduled/serverless path, packaging assumptions, and exte
 
 Read when: changing the Lambda handler, deployment workflow, runtime environment, notification channels, or temporary storage.
 
-Source of truth: [`main.py`](../../src/job_finder/main.py), [`requirements.txt`](../../requirements.txt), [`deploy.yml`](../../.github/workflows/deploy.yml), [`.env.example`](../../.env.example), and [`notifier.py`](../../src/job_finder/notifier.py).
+Source of truth: [`main.py`](../../src/job_finder/main.py), [`requirements.txt`](../../requirements.txt), [`deploy.yml`](../../.github/workflows/deploy.yml), [`run-scan.yml`](../../.github/workflows/run-scan.yml), [`.env.example`](../../.env.example), and [`notifier.py`](../../src/job_finder/notifier.py).
 
 ## Runtime path
 
@@ -26,9 +26,38 @@ The deployment workflow reads `AWS_ROLE_ARN` and `AWS_REGION` from GitHub Action
 4. installs `libffi-devel`, copies `src/job_finder` into the package, and creates a ZIP inside the Linux container;
 5. uploads the archive to the configured S3 bucket;
 6. updates the configured Lambda function and waits for the update;
-7. invokes the function with all sources and AI enabled.
+7. checks that the function is Active and its last update Successful, without invoking it.
 
-The workflow therefore has production side effects after a qualifying push. Bucket, function, role, and region values are configuration in the workflow or GitHub variables, not portable defaults for another deployment.
+The workflow updates production code after a qualifying push, but does not run a scan or publish offers. Bucket, function, role, and region values are configuration in the workflow or GitHub variables, not portable defaults for another deployment.
+
+## Manual production scans and retries
+
+After `run-scan.yml` reaches the default branch, use GitHub Actions → Manual
+Production Scan → Run workflow on `main`. Select `ALL`, `ES` or `EU`, and
+explicitly enable `publish_notifications`. Leaving it false skips the scan.
+This runs the already-deployed Lambda code with AI enabled and sends real
+notifications; it does not deploy the selected repository revision.
+
+The invocation step sets `AWS_MAX_ATTEMPTS=1` and `AWS_RETRY_MODE=standard` to
+prevent AWS CLI retries, uses synchronous `RequestResponse`, and sets a
+960-second client read timeout with a 20-minute job limit. This does not change
+Lambda's configured timeout. It checks both invocation metadata (`FunctionError`)
+and the handler's `statusCode`, so a returned function error fails the workflow.
+A successful handler response does not prove delivery: the notifier currently
+catches channel errors.
+
+Deployment and manual scans share a GitHub concurrency group with automatic
+cancellation disabled. This prevents these workflow runs from executing
+concurrently; it does not serialize EventBridge or other direct invocations.
+If the client disconnects or a workflow is cancelled, Lambda may still be
+running. Check CloudWatch START/REPORT records before manually rerunning.
+There is no persistent notification deduplication, and a deliberate rerun can
+republish offers. EventBridge scheduling and its retry policy remain unchanged.
+
+For deliberate CLI invocations outside this workflow, set `AWS_MAX_ATTEMPTS=1`
+in that command's environment too. [AWS retry settings](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-retries.html)
+count the initial call as an attempt. Do not use `--no-ai` as a notification
+suppression mechanism.
 
 `requirements.txt` is intended to contain exact `==` pins. The current `python-dotenv>=1.2.2` entry is a documented policy mismatch. Do not use Windows-native ZIP creation or a generic Linux image for Lambda packages; the required packaging policy is recorded in [`AGENTS.md`](../../AGENTS.md).
 

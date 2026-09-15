@@ -13,6 +13,10 @@ permissions:
   id-token: write
   contents: read
 
+concurrency:
+  group: job-finder-production
+  cancel-in-progress: false
+
 jobs:
   compile-and-ship:
     name: Containerized Linux x86_64 Build
@@ -66,12 +70,11 @@ jobs:
           echo "Waiting for Lambda update to transition to Successful state..."
           aws lambda wait function-updated --function-name job-finder-bot
 
-      - name: Invoke Production Verification Test
+      - name: Verify Deployment Status Without Invoking
         run: |
-          aws lambda invoke \
+          aws lambda get-function-configuration \
             --function-name job-finder-bot \
-            --payload '{"sources": ["ALL"], "no_ai": false}' \
-            --cli-binary-format raw-in-base64-out \
-            --cli-read-timeout 300 \
-            response.json
-          cat response.json
+            --query '{State:State,LastUpdateStatus:LastUpdateStatus}' \
+            --output json > deployment-status.json
+          cat deployment-status.json
+          jq -e '.State == "Active" and .LastUpdateStatus == "Successful"' deployment-status.json

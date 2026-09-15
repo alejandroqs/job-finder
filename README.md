@@ -199,7 +199,7 @@ Before deploying, ensure the following prerequisites are met:
 
 ### Deployment Script
 
-The following master PowerShell deployment script automates the build and deployment process. It cleans old artifacts, natively compiles the Linux-compatible dependencies inside a SAM container, copies the application code, zips the package, uploads it to S3, updates the AWS Lambda function code, and executes a test invocation:
+The following PowerShell deployment script builds Linux-compatible dependencies inside a SAM container, copies the application code, zips the package, uploads it to S3, and updates the AWS Lambda function code. Deployment does not invoke the bot or publish offers:
 
 ```powershell
 Remove-Item -Recurse -Force -Path ".\dist_lambda" -ErrorAction SilentlyContinue
@@ -224,17 +224,11 @@ aws lambda update-function-code `
 
 aws lambda wait function-updated --function-name job-finder-bot
 if ($LASTEXITCODE -ne 0) { throw "Lambda update did not complete successfully." }
-aws lambda invoke `
-  --function-name job-finder-bot `
-  --payload '{\"sources\": [\"ALL\"], \"no_ai\": false}' `
-  --cli-binary-format raw-in-base64-out `
-  --cli-read-timeout 300 `
-  response.json
-
-Get-Content response.json
 ```
 
-In your AWS Lambda console, set the handler to **`job_finder.main.lambda_handler`** with a Python 3.14 runtime. Size the function timeout using measured scan duration and the [retry timing constraints](docs/known-limitations.md). A chunk encountering three 429 errors sleeps for 180 seconds in total, before accounting for requests, fetching, parsing, and notifications; a 150-second timeout cannot accommodate that path. The example's 300-second CLI read timeout matches the workflow and does not configure the Lambda function timeout or guarantee completion.
+In your AWS Lambda console, set the handler to **`job_finder.main.lambda_handler`** with a Python 3.14 runtime. Size the function timeout using measured scan duration and the [retry timing constraints](docs/known-limitations.md). A chunk encountering three 429 errors sleeps for 180 seconds in total, before accounting for requests, fetching, parsing, and notifications; a 150-second timeout cannot accommodate that path.
+
+GitHub pushes deploy without scanning. For an intentional scan, use **Actions → Manual Production Scan → Run workflow** on `main` and enable `publish_notifications`. This runs the deployed function and sends real offers. Its AWS CLI invocation permits one attempt; a connection failure can still leave Lambda running, so check CloudWatch before rerunning. See [Lambda operations](docs/workflows/lambda-operations.md) for controls and remaining limits.
 
 ### Operational Limits & Memory Optimization
 

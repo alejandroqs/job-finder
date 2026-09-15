@@ -1,0 +1,60 @@
+name: Manual Production Scan
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_notifications:
+        description: 'Run a live scan with AI and publish offers to configured channels'
+        required: true
+        default: false
+        type: boolean
+      sources:
+        description: 'Source group to scan'
+        required: true
+        default: ALL
+        type: choice
+        options:
+          - ALL
+          - ES
+          - EU
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: job-finder-production
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    if: github.ref == 'refs/heads/main' && inputs.publish_notifications
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          audience: sts.amazonaws.com
+
+      - name: Invoke Once and Check Function Result
+        env:
+          AWS_MAX_ATTEMPTS: '1'
+          AWS_RETRY_MODE: standard
+          SCAN_SOURCES: ${{ inputs.sources }}
+        run: |
+          payload=$(jq -nc --arg source "$SCAN_SOURCES" '{sources: [$source], no_ai: false}')
+          aws lambda invoke \
+            --function-name job-finder-bot \
+            --invocation-type RequestResponse \
+            --payload "$payload" \
+            --cli-binary-format raw-in-base64-out \
+            --cli-read-timeout 960 \
+            --output json \
+            response.json > invocation-status.json
+          cat invocation-status.json
+          jq -e '.StatusCode == 200 and (has("FunctionError") | not)' invocation-status.json
+          cat response.json
+          jq -e '.statusCode == 200' response.json

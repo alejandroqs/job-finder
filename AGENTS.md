@@ -36,18 +36,6 @@ Read source code as the authority for implemented behaviour. The documentation d
 - Lambda can write only to `/tmp`. Route temporary downloads there and clean them up when the implementation provides a cleanup path.
 - Read [docs/workflows/lambda-operations.md](docs/workflows/lambda-operations.md) before changing packaging, deployment, runtime, or scheduled execution documentation.
 
-## Investigation and codebase memory
-
-The repository is indexed by `codebase-memory-mcp` as `C-Users-muk04-Development-Python-job-finder`. For non-trivial structural questions, use the `codebase-memory-project` workflow:
-
-1. Confirm the project and index status.
-2. Use a focused architecture, symbol, or relationship query.
-3. Inspect the exact source implementation supporting the conclusion.
-4. Check index coverage for the relevant paths. Treat the graph as discovery evidence, not as a substitute for source.
-5. Report meaningful gaps, stale metadata, partial parsing, or external behaviour that was not tested.
-
-Use direct search and file reads for Markdown, YAML, fixtures, exact text, and any path or range the graph reports as incomplete. Do not re-index or delete graph projects as routine investigation.
-
 ## Verification language
 
 Distinguish these evidence levels in plans and reports:

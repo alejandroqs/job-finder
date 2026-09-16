@@ -34,6 +34,11 @@ it_keywords:
   - '\b(?:ai|ml|nlp|llm)\s+(?:engineer|developer|researcher|specialist)\b'
   - '\b(?:cloud|platform|devops|data)\s+(?:engineer|developer|architect|specialist)\b'
   - '\b(?:devops|site\s+reliability\s+engineer|distributed\s+systems)\b'
+  # Narrow corporate role phrases observed in FULP detail pages.
+  - '\b(?:consultor(?:/a|a|es|as)?|consultants?)\s+(?:de\s+)?sap\b'
+  - '\bservice\s+desk\b'
+  - '\b(?:soporte|support)\s+(?:t[eé]cnico|technical)\s+(?:a\s+|to\s+|de\s+)?(?:usuarios?|users?)\b'
+  - '\b(?:administraci[oó]n|administration|administrator)\s+(?:b[aá]sic[ao]s?\s+)?(?:de\s+)?(?:microsoft\s+365|microsoft\s+intune|microsoft\s+entra\s+id)\b'
   # Cybersecurity includes operations, engineering, offensive security and GRC.
   # Avoid standalone security/seguridad, SOC, IAM or GRC: they are ambiguous.
   - '\bcyber[ -]?security\b'
@@ -94,6 +99,9 @@ boilerplate_exclusions:
   # Remove incidental skills phrases, not whole candidates or real security duties.
   - '\b(?:basic\s+computer\s+(?:skills|literacy)|computer\s+literate)\b'
   - '\b(?:conocimientos?\s+basicos?\s+de\s+informatica|informatica\s+a\s+nivel\s+(?:de\s+)?usuario)\b'
+  - '\b(?:experiencia|conocimientos?|manejo|uso|m[oó]dulos?|sistema|herramienta|producto)\s+(?:en\s+|de\s+|con\s+)?sap\b'
+  - '\b(?:atenci[oó]n|servicio|orientaci[oó]n)\s+al(?:/la)?\s+cliente\b'
+  - '\b(?:uso|utilizaci[oó]n|experiencia|conocimientos?)\s+(?:de\s+|con\s+|en\s+)?(?:microsoft\s+365|microsoft\s+intune|microsoft\s+entra\s+id|office(?:\s+365)?)\b'
 
 # Absolute rejection keywords (case-insensitive). If found in the title, the job is immediately skipped.
 title_reject_absolute:

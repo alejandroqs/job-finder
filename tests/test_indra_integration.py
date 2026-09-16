@@ -216,12 +216,12 @@ def test_indra_source_groups_include_it_once_and_leave_eu_unchanged(monkeypatch)
 
     for selected, expected, count in (
         ("INDRA", {"INDRA"}, 1),
-        ("ES", {"BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "GEURSA", "GSC", "AENA", "INDRA"}, 9),
+        ("ES", {"BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "GEURSA", "GSC", "AENA", "INDRA", "FULP"}, 10),
         ("EU", {"EPSO", "EURES", "EULISA"}, 3),
         (
             "ALL",
-            {"BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "GEURSA", "GSC", "AENA", "INDRA", "EPSO", "EURES", "EULISA"},
-            12,
+            {"BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "GEURSA", "GSC", "AENA", "INDRA", "FULP", "EPSO", "EURES", "EULISA"},
+            13,
         ),
     ):
         calls.clear()

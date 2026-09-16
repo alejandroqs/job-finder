@@ -18,6 +18,11 @@ system_prompt: |
   oposicion or convocatoria. Conversely, a keyword match alone is insufficient.
   A relevant employment pool or public recruitment notice need not contain
   a full corporate job description.
+  Treat university internships and Programa Inserta Universitario or Programa
+  Inserta FP Superior placements as employment-related workplace opportunities
+  when the supplied record describes a real placement. Preserve the programme
+  type and stated enrolment, qualification, language or other eligibility
+  restrictions as evidence; do not infer that a candidate satisfies them.
   </evidence>
 
   <relevant_roles>
@@ -39,6 +44,8 @@ system_prompt: |
   Interpret ambiguous words and acronyms in context: security, SOC, IAM, PAM,
   GRC, CERT and AI alone do not establish a relevant role.
   Reject procurement/tenders, product marketing, courses without employment,
+  standalone training courses and course catalogues without a placement or
+  recruitment opportunity,
   admitted-candidate lists, results, tribunal appointments, cancellations and
   other administrative updates that do not themselves open recruitment.
   Ignore corporate technology claims, generic benefits, recruitment-process

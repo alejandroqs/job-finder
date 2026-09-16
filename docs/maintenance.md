@@ -23,7 +23,7 @@ Source of truth: the current repository, especially [`AGENTS.md`](../AGENTS.md),
 | CLI arguments, source groups, Lambda event, environment variables | `configuration.md` |
 | Main orchestration, shared models, filtering, AI, exports, notifications | `architecture.md` |
 | BOP, BOC, or BOE | `sources/spanish-gazettes.md` and `sources/index.md` |
-| Sagulpa, Guaguas, GEURSA, GSC, Aena, or Indra Group | `sources/corporate-boards.md` and `sources/index.md` |
+| Sagulpa, Guaguas, GEURSA, GSC, Aena, Indra Group, or FULP | `sources/corporate-boards.md` and `sources/index.md` |
 | EPSO, EURES, or eu-LISA | `sources/european-sources.md` and `sources/index.md` |
 | Tests or fixtures | `testing.md` |
 | Local commands or packaging | `workflows/local-development.md` |

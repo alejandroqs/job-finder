@@ -3,7 +3,7 @@
 [![Python Version](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 [![Testing](https://img.shields.io/badge/tests-pytest-green.svg)](https://pytest.org/)
 
-A Python command-line tool and AWS Lambda workload that monitors BOP Las Palmas, BOC, BOE, Sagulpa, Guaguas Municipales, GEURSA, GSC, Aena, Indra Group, EPSO, EURES, and eu-LISA to identify Information Technology and Software Engineering opportunities.
+A Python command-line tool and AWS Lambda workload that monitors BOP Las Palmas, BOC, BOE, Sagulpa, Guaguas Municipales, GEURSA, GSC, Aena, Indra Group, FULP, EPSO, EURES, and eu-LISA to identify Information Technology and Software Engineering opportunities.
 
 Official sources expose different PDF, HTML, RSS, CSV, JSON, and XML formats. The project uses source-specific fetchers and parsers, shared normalization models, keyword filtering, optional Gemini validation, and Markdown or HTML exports.
 
@@ -33,6 +33,8 @@ graph TD
     CLI --> GSCParser[GSCParser]
     CLI --> IndraFetcher[IndraFetcher]
     CLI --> IndraParser[IndraParser]
+    CLI --> FulpFetcher[FulpFetcher]
+    CLI --> FulpParser[FulpParser]
     CLI --> BOPParser[BOPParser]
     CLI --> BOCParser[BOCParser]
     CLI --> BOEParser[BOEParser]
@@ -60,6 +62,8 @@ graph TD
     GSCParser -- Implements --> IParser
     IndraFetcher -- Implements --> IFetcher
     IndraParser -- Implements --> IParser
+    FulpFetcher -- Implements --> IFetcher
+    FulpParser -- Implements --> IParser
     
     subgraph Utility Layers
         Cleaner[TextCleaner Pipeline]
@@ -76,7 +80,7 @@ graph TD
 * **Shared contracts**: `BaseFetcher`/`BaseParser`, the web-board interfaces, and the EU interfaces describe common shapes. The orchestrator still selects concrete classes explicitly in `main.py`.
 * **Parallel Source Fetching & Dynamic Buffering**: Uses `ThreadPoolExecutor` in the main orchestrator to scan selected sources concurrently. Console output is buffered through `ThreadLocalStream` for multi-source runs; a single-source run streams progress directly.
 * **Deep Multi-Document Ingestion & Targeted Extraction**: Legacy SSR web apps (like Aena) can place job details in supplementary PDF annexes. The scraper selects PDFs whose text or title suggests bases or requirements, processes them concurrently, and catches per-document failures with a title and closing-date fallback when available.
-* **Fail-Fast List-Level Title Rejection**: Evaluates job titles early at the list level (before hitting detail pages or triggering attachment downloads) to filter out clearly irrelevant roles. It divides rejection rules into *Absolute Rejections* (e.g., formativo/student internships) and *Relative Rejections* (e.g., mantenimiento, bomberos) which are skipped unless overridden by a positive IT keyword matching inside the title (e.g. "Técnico Mantenimiento de Sistemas Informáticos").
+* **Source-Specific Fail-Fast Title Rejection**: Where a source invokes it, the shared title filter evaluates job titles early (before detail pages or attachment downloads) to remove clearly irrelevant roles. Aena applies the absolute and relative title rules; FULP deliberately does not, so its university internships and Programa Inserta offers remain eligible for the shared IT and employment filters.
 * **Fail-Fast Hard Expiration Filtering**: Evaluates job closing dates directly from the main list. Roles whose application window has closed relative to the target baseline date are dropped before detail extraction.
 * **Batched AI Validation**: Sends candidates in chunks of 10 to the configured Gemini model, retries selected 429/503 failures with fixed waits, and asks for a Pydantic-validated JSON response. Failed validation keeps candidates.
 * **Symmetric Merging & Date Filtering**: The BOC integration merges multiple RSS feeds concurrently and applies precise target-date filtering in the fetch phase, converting unstructured feed items into clean in-memory XML buffers.
@@ -119,7 +123,7 @@ graph TD
 The tool exposes two CLI commands: `job-finder` and the newly mapped `bo-finder`.
 
 ### 1. Basic Run (Scans the selected sources with smart fallback)
-Downloads and processes the selected sources; the default `ALL` group includes all twelve integrations and outputs matches.
+Downloads and processes the selected sources; the default `ALL` group includes all thirteen integrations and outputs matches.
 
 **Smart Fallbacks**: If today's gazettes are not yet published or it is a weekend/holiday:
 * For **BOP**: The tool automatically scrapes the index to find the latest published bulletin.
@@ -137,13 +141,13 @@ python -m job_finder.main --date 2026-05-21
 ```
 
 ### 3. Filter by Source
-Target a source or group (`BOP`, `BOC`, `BOE`, `SAGULPA`, `GUAGUAS`, `GEURSA`, `GSC`, `AENA`, `INDRA`, `EPSO`, `EURES`, `EULISA`, `ES`, `EU`, or `ALL`; default is `ALL`):
+Target a source or group (`BOP`, `BOC`, `BOE`, `SAGULPA`, `GUAGUAS`, `GEURSA`, `GSC`, `AENA`, `INDRA`, `FULP`, `EPSO`, `EURES`, `EULISA`, `ES`, `EU`, or `ALL`; default is `ALL`):
 ```powershell
 python -m job_finder.main --source BOE
 ```
 
 ### 4. Parse a Local File (Auto-detection)
-Provide a local PDF, XML/RSS, HTML, CSV, or JSON file and the tool routes it to the appropriate parser without downloading that source first. Guaguas HTML is detected from its filename or a parser-supported employment container anywhere in the full document, while GEURSA HTML uses a parser-supported active heading plus accordion structure. GSC HTML uses a bounded `gsc` filename token or the parser-supported `#seleccion` plus `.projects_holder.portfolio_main_holder` structure; its parser reads only direct cards in that holder. Generic employment-page phrases or a source mention alone do not provide structural recognition. A local run can still call Gemini and send notifications when those integrations are configured; use `--no-ai` and unset notification variables for an isolated parser check:
+Provide a local PDF, XML/RSS, HTML, CSV, or JSON file and the tool routes it to the appropriate parser without downloading that source first. Guaguas HTML is detected from its filename or a parser-supported employment container anywhere in the full document, while GEURSA HTML uses a parser-supported active heading plus accordion structure. GSC HTML uses a bounded `gsc` filename token or the parser-supported `#seleccion` plus `.projects_holder.portfolio_main_holder` structure; its parser reads only direct cards in that holder. FULP HTML uses a bounded `fulp` filename token or the parser-supported `.panel_ofertas` listing / `.Content-Oferta` detail structure. Offline FULP details require a canonical or `og:url` identity, while listing snapshots provide listing evidence only and do not fetch details. Generic employment-page phrases or a source mention alone do not provide structural recognition. A local run can still call Gemini and send notifications when those integrations are configured; use `--no-ai` and unset notification variables for an isolated parser check:
 ```powershell
 python -m job_finder.main --file tests/fixtures/boe_sample.xml --no-ai
 ```
@@ -151,6 +155,8 @@ python -m job_finder.main --file tests/fixtures/boe_sample.xml --no-ai
 GSC reads only direct cards in the current `#seleccion` list holder. It accepts a leading `DD/MM/YYYY` or `DD-MM-YYYY` publication date and monitors the inclusive eight-date window through publication plus seven days; that inferred date is a monitoring heuristic, not an official application deadline. Administrative, result, applicant-list, correction, subsanación, exam/stage, and cancelled notices are excluded before IT filtering. A historical date does not retrieve historical website state, and repeated scans in the same window can repeat findings because there is no persistent cross-run deduplication.
 
 Indra Group uses the server-rendered `https://careers.indragroup.com/search/` endpoint. By default it performs one blank `q=` search and follows the official pagination links; an optional top-level `portal_search_keywords` list in the selected YAML file deliberately narrows discovery and is independent of the shared include/exclude rules. `#noresults` is authoritative even when the page contains suggestion rows. The source keeps official numeric IDs and clean official URLs, deduplicates before detail retrieval and AI, and applies geographic prefiltering from published structured mode/location evidence: `Remote`/`Remoto` and `Indiferente` pass, explicit Gran Canaria locations can pass, and unknown or unsupported evidence does not become remote. Offline listing snapshots cannot invent missing modality or fetch details. The shared employment-anchor filter and the existing Gemini prompt remain unchanged; Gemini receives only the first 1,500 characters, and no persistent cross-run deduplication exists. A 2026-09-15 read-only discovery check reached the public portal but was incomplete: 31 pages, 763 genuine rows, 733 unique IDs, contradictory totals, and a repeated pagination page. Lambda runtime suitability remains unverified.
+
+FULP uses the public [`fulp.es/ofertas`](https://www.fulp.es/ofertas) listing and public numeric detail URLs. It discovers the current response, reconciles its advertised total where present, deduplicates numeric offer IDs, and fetches details serially. Detail identity, redirects, host/path validation, and requests are bounded to the public `www.fulp.es` list/detail paths; the source schedules at most 200 HTTP attempts within a 180-second scheduling budget per scan. It retains ordinary employment, university internship, Programa Inserta Universitario, and Programa Inserta FP Superior types, and does not apply the shared early title-rejection heuristic. `target_date` is used only for explicit application-deadline evidence in the current HTML; it does not reconstruct historical availability. A failed detail is isolated with diagnostics, while incomplete discovery and incomplete detail coverage remain visible to the parser. FULP uses the shared IT/employment filter and optional Gemini stage, receives at most the existing 1,500-character text window, and has no persistent cross-run deduplication. The implementation's live verification was limited to one public listing response and six distinct detail URLs on 2026-09-16; Lambda runtime suitability and current long-term completeness remain unverified.
 
 ### 5. Custom Keyword Filtering
 Pass a custom `keywords.yaml` file to modify IT keywords or employment anchors on the fly:

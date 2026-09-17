@@ -171,10 +171,6 @@ class FulpParser(BaseParser, BaseWebBoardParser):
         r"presentaci[oó]n))?|inscripci[oó]n(?:es)?)\b",
         re.IGNORECASE,
     )
-    CLOSED_STATUS_WORD_PATTERN = re.compile(
-        r"\b(?:cerrad[oa]s?|cancelad[oa]s?|anulad[oa]s?|finalizad[oa]s?)\b",
-        re.IGNORECASE,
-    )
     LOCATION_PATTERN = re.compile(
         r"\b(?:las\s+palmas(?:\s+de\s+gran\s+canaria)?|gran\s+canaria|"
         r"santa\s+cruz\s+de\s+tenerife|tenerife|lanzarote|fuerteventura|"

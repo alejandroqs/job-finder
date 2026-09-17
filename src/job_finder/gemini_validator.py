@@ -16,24 +16,6 @@ except ImportError:
 from job_finder.interfaces import BaseAIValidator, ParsedAnnouncement
 
 
-class JobOfferValidation(BaseModel):
-    """Structured output schema for Gemini job classification."""
-    is_tech_job: bool = Field(
-        description="True if the text is a real IT/Software/ICT job opening or employment pool. False otherwise."
-    )
-    job_title: str | None = Field(
-        default=None,
-        description="Title of the position (e.g., Técnico de Sistemas). Null if not a valid offer."
-    )
-    organism: str | None = Field(
-        default=None,
-        description="The issuing organism (e.g., Ayuntamiento, Ministerio)."
-    )
-    confidence: Literal["high", "medium", "low"] = Field(
-        description="Confidence level in the classification."
-    )
-
-
 class JobOfferValidationItem(BaseModel):
     """Item verdict representing classification of a single job within a batch."""
     id: int = Field(description="The index/id of the job from the input list.")

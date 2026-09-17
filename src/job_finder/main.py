@@ -63,6 +63,25 @@ from job_finder.interfaces import ParsedAnnouncement, BOPage
 from job_finder.notifier import send_notifications
 import threading
 
+
+ES_SOURCES = (
+    "BOP",
+    "BOC",
+    "BOE",
+    "SAGULPA",
+    "GUAGUAS",
+    "GEURSA",
+    "GSC",
+    "AENA",
+    "INDRA",
+    "FULP",
+)
+EU_SOURCES = ("EPSO", "EURES", "EULISA")
+ALL_SOURCES = ES_SOURCES + EU_SOURCES
+SOURCE_GROUPS = ("EU", "ES", "ALL")
+SOURCE_CHOICES = ALL_SOURCES + SOURCE_GROUPS
+
+
 class ThreadLocalStream:
     def __init__(self, default_stream):
         self.default_stream = default_stream
@@ -751,13 +770,13 @@ def run_scan(
         
         # Decide which sources to run
         if not sources or "ALL" in sources:
-            sources_to_run = ["BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "GEURSA", "GSC", "AENA", "INDRA", "FULP", "EPSO", "EURES", "EULISA"]
+            sources_to_run = list(ALL_SOURCES)
         elif "EU" in sources:
-            sources_to_run = ["EPSO", "EURES", "EULISA"]
+            sources_to_run = list(EU_SOURCES)
         elif "ES" in sources:
-            sources_to_run = ["BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "GEURSA", "GSC", "AENA", "INDRA", "FULP"]
+            sources_to_run = list(ES_SOURCES)
         else:
-            sources_to_run = sources
+            sources_to_run = list(sources)
         
         # Ensure stdout/stderr are wrapped in ThreadLocalStream for parallel thread buffering if running multiple
         if len(sources_to_run) > 1:
@@ -878,7 +897,7 @@ def main() -> None:
     parser.add_argument(
         "--source",
         "-s",
-        choices=["BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "GEURSA", "GSC", "AENA", "INDRA", "FULP", "EPSO", "EURES", "EULISA", "EU", "ES", "ALL"],
+        choices=SOURCE_CHOICES,
         default="ALL",
         help="Target official source(s) to scan (use 'EU' for European Union, 'ES' for Spanish, or an individual source such as FULP, INDRA, GSC or GEURSA)"
     )

@@ -72,7 +72,7 @@ def test_fetch_list_uses_manual_redirects_and_explicit_timeout():
 
     fetcher = FulpFetcher(request_get=fake_get)
     assert fetcher.fetch_list() == "área de ofertas"
-    assert [call[0] for call in calls] == [fetcher.LIST_URL, fetcher.LIST_URL]
+    assert [call[0] for call in calls] == [fetcher.LIST_URL, f"{fetcher.LIST_URL}/"]
     assert all(call[1]["allow_redirects"] is False for call in calls)
     assert all(call[1]["timeout"] == (5.0, 10.0) for call in calls)
     assert fetcher.attempts == 2
@@ -107,6 +107,28 @@ def test_detail_redirect_must_retain_requested_id():
     with pytest.raises(FulpFetchError, match="rejected redirect target"):
         FulpFetcher(request_get=fake_get).fetch_detail("/ofertas/123/example")
     assert calls == ["https://www.fulp.es/ofertas/123/example"]
+
+
+def test_relative_detail_redirect_resolves_against_current_detail_url():
+    calls = []
+    responses = iter(
+        [
+            FakeResponse(status_code=302, headers={"Location": "new-slug"}),
+            FakeResponse("detail", url="https://www.fulp.es/ofertas/123/new-slug"),
+        ]
+    )
+
+    def fake_get(url, **kwargs):
+        calls.append(url)
+        return next(responses)
+
+    fetcher = FulpFetcher(request_get=fake_get)
+
+    assert fetcher.fetch_detail("/ofertas/123/old-slug") == "detail"
+    assert calls == [
+        "https://www.fulp.es/ofertas/123/old-slug",
+        "https://www.fulp.es/ofertas/123/new-slug",
+    ]
 
 
 def test_redirect_loop_and_hop_limit_are_bounded():

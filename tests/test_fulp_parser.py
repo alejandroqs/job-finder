@@ -4,7 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from job_finder.fulp_parser import FulpIdentityError, FulpParser, FulpParseError
+from job_finder.fulp_parser import FulpIdentityError, FulpParser, FulpParseError, FulpRecord
+from job_finder.interfaces import BOPage
+from job_finder.keyword_filter import KeywordFilter
 
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
@@ -136,6 +138,206 @@ def test_nested_foreign_detail_root_cannot_contaminate_outer_record():
     assert "Outer requisitos" in record.requirements
 
 
+def test_nested_linked_listing_card_cannot_override_outer_identity():
+    html = """
+    <html><body><h5>1 RESULTADOS ENCONTRADOS</h5><div class="panel_ofertas">
+      <a href="/ofertas/1/outer"><div class="row oferta"><h3>Outer systems</h3>
+        <p class="descripcion">Outer description with sistemas.</p>
+        <span class="etiqueta tipo">OFERTA DE EMPLEO</span>
+        <a href="/ofertas/2/foreign"><div class="row oferta">
+          <h3>Foreign systems</h3><p class="descripcion">Foreign description.</p>
+          <span class="etiqueta tipo">OFERTA DE EMPLEO</span>
+        </div></a>
+      </div></a>
+    </div></body></html>
+    """
+
+    records = FulpParser().parse_list(html, target_date=date(2026, 9, 16))
+
+    assert [record.offer_id for record in records] == ["1"]
+    assert records[0].title == "Outer systems"
+    assert "Foreign" not in records[0].listing_description
+
+
+def test_nested_detail_identity_is_not_used_when_outer_root_has_no_identity():
+    html = """
+    <html><body>
+      <div class="Content-Oferta"><h5>OFERTA DE EMPLEO</h5>
+        <h2 class="titulo">Outer systems</h2>
+        <div class="Descripcion">Outer description with sistemas.</div>
+        <div class="Content-Oferta">
+          <link rel="canonical" href="https://www.fulp.es/ofertas/2/foreign">
+        </div>
+      </div>
+    </body></html>
+    """
+
+    with pytest.raises(FulpIdentityError, match="no reliable canonical"):
+        FulpParser()._parse_detail_record(html, require_snapshot_identity=True)
+
+
+def test_application_word_in_owned_listing_role_does_not_hide_the_offer():
+    html = """
+    <html><body><h5>1 RESULTADOS ENCONTRADOS</h5><div class="panel_ofertas">
+      <a href="/ofertas/3/aplicaciones"><div class="row oferta">
+        <h3>Desarrollo de Aplicaciones Informáticas</h3>
+        <p class="descripcion">Requisitos: sistemas y redes.</p>
+        <span class="etiqueta tipo">PRÁCTICAS UNIVERSITARIAS</span>
+      </div></a>
+    </div></body></html>
+    """
+
+    records = FulpParser().parse_list(html, target_date=date(2026, 9, 16))
+
+    assert len(records) == 1
+    assert records[0].title == "Desarrollo de Aplicaciones Informáticas"
+    assert "sistemas y redes" in records[0].listing_description
+
+
+@pytest.mark.parametrize(
+    ("offer_id", "expected_organism"),
+    [
+        ("108550", "Empresa no identificada"),
+        ("108571", "Mistral Tecnologías de Informacion y Comunicaciones SL"),
+    ],
+)
+def test_fulp_finding_uses_evidenced_employer_and_keeps_source(offer_id, expected_organism):
+    from job_finder.keyword_filter import KeywordFilter
+
+    parser = FulpParser()
+    record = parser._parse_detail_record(
+        fixture(f"fulp_detail_{offer_id}.html"),
+        require_snapshot_identity=True,
+        reference_date=date(2026, 9, 16),
+    )
+    findings = KeywordFilter().search_page(parser._to_page(record, 1))
+
+    assert len(findings) == 1
+    assert findings[0].organism == expected_organism
+    assert findings[0].source == "FULP"
+
+
+def test_location_detection_does_not_extract_locality_from_company_text():
+    html = """
+    <html><head><link rel="canonical" href="/ofertas/4/company-role"></head><body>
+      <div class="Content-Oferta"><h5>OFERTA DE EMPLEO</h5>
+        <h2 class="titulo">Systems administrator</h2>
+        <div class="container-details"><ul>
+          <li>Servicios Gran Canaria SL</li><li>Plazas: 1</li>
+          <li>Santa Cruz de Tenerife</li>
+        </ul></div>
+        <div class="Descripcion">Requisitos: sistemas y redes.</div>
+      </div>
+    </body></html>
+    """
+
+    record = FulpParser()._parse_detail_record(html, require_snapshot_identity=True)
+
+    assert record.location_raw == "Santa Cruz de Tenerife"
+    assert "Gran Canaria" not in record.location_raw
+
+
+def test_online_detail_keeps_employer_merged_from_owned_listing_metadata():
+    listing = """
+    <html><body><h5>1 RESULTADOS ENCONTRADOS</h5><div class="panel_ofertas">
+      <a href="/ofertas/8/merged-employer"><div class="row oferta">
+        <h3>Systems administrator</h3><p class="empresa">Owned Employer SL</p>
+        <p class="descripcion">Buscamos sistemas y redes. Requisitos: sistemas y redes.</p>
+        <span class="etiqueta tipo">OFERTA DE EMPLEO</span>
+      </div></a>
+    </div></body></html>
+    """
+    detail = """
+    <html><head><link rel="canonical" href="/ofertas/8/merged-employer"></head><body>
+      <div class="Content-Oferta"><h5>OFERTA DE EMPLEO</h5>
+        <h2 class="titulo">Systems administrator</h2>
+        <div class="Descripcion">Buscamos sistemas y redes. Requisitos: sistemas y redes.</div>
+      </div>
+    </body></html>
+    """
+
+    class Fetcher:
+        last_response_url = ""
+
+        def begin_scan(self):
+            pass
+
+        def fetch_list(self):
+            return listing
+
+        def fetch_detail(self, url):
+            assert url.endswith("/ofertas/8/merged-employer")
+            return detail
+
+    from job_finder.keyword_filter import KeywordFilter
+
+    pages = FulpParser(fetcher=Fetcher()).scan(target_date=date(2026, 9, 16))
+    findings = KeywordFilter().search_page(pages[0])
+
+    assert len(findings) == 1
+    assert findings[0].organism == "Owned Employer SL"
+    assert findings[0].source == "FULP"
+
+
+def test_record_text_keeps_description_eligibility_before_long_optional_tasks():
+    record = FulpRecord(
+        offer_id="5",
+        title="Técnico de sistemas",
+        url="https://www.fulp.es/ofertas/5/sistemas",
+        offer_type="PRÁCTICAS UNIVERSITARIAS",
+        description=(
+            "Se requieren prácticas extracurriculares en IT. "
+            "Se requiere encontrarse cursando grado universitario acorde a la práctica "
+            "ofertada y nivel intermedio de inglés."
+        ),
+        tasks="Tarea opcional detallada. " * 500,
+        profile="Perfil técnico",
+        requirements="Inglés B1",
+    )
+
+    text = FulpParser._record_text(record)
+
+    assert "cursando grado universitario acorde a la práctica ofertada" in text[:1500]
+    assert "nivel intermedio de inglés" in text[:1500]
+    assert "Tarea opcional detallada." in text
+
+
+def test_listing_type_comes_from_owned_type_badges_not_contract_badges():
+    html = """
+    <html><body><h5>1 RESULTADOS ENCONTRADOS</h5><div class="panel_ofertas">
+      <a href="/ofertas/6/nuevo-programa"><div class="row oferta">
+        <h3>Software support role</h3><p class="descripcion">Requisitos: sistemas.</p>
+        <span class="etiqueta">CONTRATO INDEFINIDO</span>
+        <span class="etiqueta tipo">NUEVO PROGRAMA</span>
+      </div></a>
+    </div></body></html>
+    """
+
+    records = FulpParser().parse_list(html, target_date=date(2026, 9, 16))
+
+    assert len(records) == 1
+    assert records[0].offer_type == "NUEVO PROGRAMA"
+    assert records[0].type_normalized == "UNKNOWN"
+    assert records[0].contract == "CONTRATO INDEFINIDO"
+
+
+def test_conflicting_owned_listing_type_badges_are_diagnosed_and_skipped():
+    html = """
+    <html><body><h5>1 RESULTADOS ENCONTRADOS</h5><div class="panel_ofertas">
+      <a href="/ofertas/9/conflicting-type"><div class="row oferta">
+        <h3>Conflicting role</h3><p class="descripcion">Requisitos: sistemas.</p>
+        <span class="etiqueta tipo">OFERTA DE EMPLEO</span>
+        <span class="etiqueta tipo">NUEVO PROGRAMA</span>
+      </div></a>
+    </div></body></html>
+    """
+
+    parser = FulpParser()
+
+    assert parser.parse_list(html, target_date=date(2026, 9, 16)) == []
+    assert any("conflicting owned offer types" in message for message in parser.diagnostics)
+
+
 def test_listing_nested_card_cannot_create_or_contaminate_a_record():
     html = """
     <html><body><h5>1 RESULTADOS ENCONTRADOS</h5><div class="panel_ofertas">
@@ -218,6 +420,10 @@ def test_application_deadlines_use_the_closing_date_and_ignore_publication_dates
         "El plazo de solicitudes es del 01/09/2026 hasta el 30/09/2026.",
         reference,
     )
+    al_interval_status = FulpParser._availability(
+        "Plazo de solicitudes del 01/09/2026 al 10/09/2026.",
+        reference,
+    )
     closing_day_status = FulpParser._availability(
         "El plazo de solicitudes es del 01/09/2026 hasta el 30/09/2026.",
         date(2026, 9, 30),
@@ -229,8 +435,184 @@ def test_application_deadlines_use_the_closing_date_and_ignore_publication_dates
 
     assert expired_status[:2] == ("EXPIRED", date(2026, 9, 10))
     assert interval_status[:2] == ("OPEN", date(2026, 9, 30))
+    assert al_interval_status[:2] == ("EXPIRED", date(2026, 9, 10))
     assert closing_day_status[:2] == ("OPEN", date(2026, 9, 30))
     assert after_closing_status[:2] == ("EXPIRED", date(2026, 9, 30))
+
+
+def test_detail_availability_uses_owned_application_text_not_role_wording():
+    html = """
+    <html><head><link rel="canonical" href="/ofertas/7/detail-deadline"></head><body>
+      <div class="Content-Oferta"><h5>OFERTA DE EMPLEO</h5>
+        <h2 class="titulo">Systems role</h2>
+        <div class="Descripcion">Publicación: 01/09/2026. Plazo de solicitud hasta el 10/09/2026.</div>
+        <div class="Requisitos">Estudios universitarios finalizados en Ingeniería Informática.</div>
+        <div class="Tareas">Administrar tickets cerrados y resolver incidencias.</div>
+      </div>
+    </body></html>
+    """
+
+    record = FulpParser()._parse_detail_record(
+        html,
+        require_snapshot_identity=True,
+        reference_date=date(2026, 9, 16),
+    )
+
+    assert record.availability_status == "EXPIRED"
+    assert record.deadline_date == date(2026, 9, 10)
+
+
+@pytest.mark.parametrize("offer_type", ["OFERTA DE EMPLEO", "PROGRAMA INSERTA UNIVERSITARIO"])
+def test_listing_availability_does_not_join_type_to_qualification_status(offer_type):
+    html = f"""
+    <html><body><h5>1 RESULTADOS ENCONTRADOS</h5><div class="panel_ofertas">
+      <a href="/ofertas/1/role"><div class="row oferta">
+        <h3>Ingeniero de software</h3><span class="etiqueta tipo">{offer_type}</span>
+        <p class="descripcion">Requisitos: estudios universitarios finalizados en Informática.</p>
+      </div></a>
+    </div></body></html>
+    """
+
+    records = FulpParser().parse_list(html, target_date=date(2026, 9, 16))
+
+    assert [record.offer_id for record in records] == ["1"]
+    assert records[0].availability_status == "UNKNOWN"
+
+
+def test_detail_availability_does_not_join_type_to_qualification_status():
+    html = """
+    <html><head><link rel="canonical" href="/ofertas/1/role"></head><body>
+      <div class="Content-Oferta"><h2 class="titulo">Ingeniero de software</h2>
+        <h5>OFERTA DE EMPLEO</h5>
+        <div class="Descripcion">Requisitos: estudios universitarios finalizados en Informática.</div>
+      </div>
+    </body></html>
+    """
+
+    record = FulpParser()._parse_detail_record(
+        html,
+        require_snapshot_identity=True,
+        reference_date=date(2026, 9, 16),
+    )
+
+    assert record.availability_status == "UNKNOWN"
+
+
+def test_listing_and_detail_availability_use_al_interval_closing_date():
+    listing = """
+    <html><body><h5>1 RESULTADOS ENCONTRADOS</h5><div class="panel_ofertas">
+      <a href="/ofertas/10/interval"><div class="row oferta">
+        <h3>Systems role</h3><span class="etiqueta tipo">OFERTA DE EMPLEO</span>
+        <p class="descripcion">Plazo de solicitudes del 01/09/2026 al 10/09/2026.</p>
+      </div></a>
+    </div></body></html>
+    """
+    detail = """
+    <html><head><link rel="canonical" href="/ofertas/10/interval"></head><body>
+      <div class="Content-Oferta"><h2 class="titulo">Systems role</h2>
+        <h5>OFERTA DE EMPLEO</h5>
+        <div class="Descripcion">Plazo de solicitudes del 01/09/2026 al 10/09/2026.</div>
+      </div>
+    </body></html>
+    """
+    reference = date(2026, 9, 16)
+
+    listing_records = FulpParser().parse_list(listing, target_date=reference)
+    detail_record = FulpParser()._parse_detail_record(
+        detail,
+        require_snapshot_identity=True,
+        reference_date=reference,
+    )
+
+    assert listing_records == []
+    assert detail_record.availability_status == "EXPIRED"
+    assert detail_record.deadline_date == date(2026, 9, 10)
+
+
+def test_availability_does_not_treat_closed_duty_tickets_as_offer_closure():
+    status, deadline, _, _ = FulpParser._availability(
+        "Se requiere experiencia en la gestión de solicitudes y tickets cerrados.",
+        date(2026, 9, 16),
+    )
+
+    assert (status, deadline) == ("UNKNOWN", None)
+
+
+def test_record_text_prioritises_explicit_requirements_and_duties_over_long_description_and_profile():
+    record = FulpRecord(
+        offer_id="6",
+        title="Prácticas de sistemas",
+        url="https://www.fulp.es/ofertas/6/role",
+        offer_type="PRÁCTICAS UNIVERSITARIAS",
+        description="Presentación de la empresa. " * 100,
+        requirements="Se requiere estar matriculado en un grado universitario. Inglés B1.",
+        tasks="Administración de Microsoft 365 y sistemas informáticos.",
+        profile="Perfil técnico. " * 200,
+    )
+
+    text = FulpParser._record_text(record)
+
+    assert "Se requiere estar matriculado en un grado universitario. Inglés B1." in text[:1500]
+    assert "Administración de Microsoft 365 y sistemas informáticos." in text[:1500]
+    assert "Presentación de la empresa." in text
+    assert "Perfil técnico." in text
+
+
+def test_record_text_does_not_split_a_keyword_across_deferred_sections():
+    value = "Contexto de empresa. " * 28 + "Área: informática."
+    record = FulpRecord(
+        offer_id="6",
+        title="Técnico de proyectos",
+        url="https://www.fulp.es/ofertas/6/role",
+        offer_type="OFERTA DE EMPLEO",
+        requirements="Se requiere experiencia.",
+        description=value,
+    )
+    keyword_filter = KeywordFilter()
+
+    intact = BOPage(
+        page_number=1,
+        text="Técnico de proyectos Tipo de oferta: OFERTA DE EMPLEO "
+        "Se requiere experiencia. "
+        + value,
+        source="FULP",
+    )
+    assembled = BOPage(
+        page_number=1,
+        text=FulpParser._record_text(record),
+        source="FULP",
+    )
+
+    assert keyword_filter.search_page(intact)
+    assert keyword_filter.search_page(assembled)
+
+
+def test_record_text_keeps_deferred_technical_and_eligibility_units_intact():
+    record = FulpRecord(
+        offer_id="7",
+        title="Técnico de sistemas",
+        url="https://www.fulp.es/ofertas/7/role",
+        offer_type="PRÁCTICAS UNIVERSITARIAS",
+        requirements=(
+            "Antecedente sintético. " * 70
+            + "Se requiere estar matriculado en un grado universitario y acreditar inglés B1."
+        ),
+        description=(
+            "Contexto sintético. " * 28
+            + "Administración de Microsoft 365 para sistemas informáticos."
+        ),
+    )
+
+    text = FulpParser._record_text(record)
+
+    assert text.count("Se requiere estar matriculado en un grado universitario y acreditar inglés B1.") == 1
+    assert text.count("Administración de Microsoft 365 para sistemas informáticos.") == 1
+    assert text.index("Requisitos (continuación):") < text.index(
+        "Se requiere estar matriculado"
+    )
+    assert text.index("Descripción de la oferta (continuación):") < text.index(
+        "Administración de Microsoft 365"
+    )
 
 
 def test_negated_closed_wording_is_not_treated_as_closed():

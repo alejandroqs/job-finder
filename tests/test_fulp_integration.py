@@ -205,6 +205,11 @@ def test_fulp_fake_ai_payload_keeps_type_eligibility_and_distinct_urls(monkeypat
     assert first_text.index("PRÁCTICAS UNIVERSITARIAS") < 1500
     assert first_text.index("cursando grado universitario") < 1500
     assert "B1" in first_text[:1500]
+    assert "prácticas extracurriculares" in first_text[:1500]
+    assert "cursando grado universitario acorde a la práctica ofertada" in first_text[:1500]
+    assert "nivel intermedio de inglés" in first_text[:1500]
+    assert "Helpdesk" in first_text[:1500]
+    assert "Microsoft 365" in first_text[:1500]
 
 
 def test_no_ai_does_not_construct_gemini(monkeypatch):
@@ -269,6 +274,24 @@ def test_offline_fulp_routing_accepts_long_headers_and_keeps_zero_network(tmp_pa
     assert all(finding.source == "FULP" for finding in findings)
 
 
+@pytest.mark.parametrize("fixture_name", ["fulp_listing_observed.html", "fulp_detail_108550.html"])
+def test_generic_snapshot_html_routes_fulp_without_long_prefix_or_http(
+    tmp_path, capsys, monkeypatch, fixture_name
+):
+    local_file = tmp_path / "public_offer.snapshot"
+    local_file.write_text((FIXTURE_DIR / fixture_name).read_text(encoding="utf-8"), encoding="utf-8")
+
+    monkeypatch.setattr(
+        "requests.get",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("offline snapshot made HTTP")),
+    )
+    findings = main.run_scan(local_file=local_file, no_ai=True)
+
+    assert findings
+    assert "Scanning local FULP file" in capsys.readouterr().out
+    assert all(finding.source == "FULP" for finding in findings)
+
+
 def test_bounded_fulp_filename_can_route_but_unsupported_html_cannot_become_an_offer(tmp_path, capsys):
     named = tmp_path / "fulp_snapshot.html"
     named.write_text("<html><body><p>not a supported FULP response</p></body></html>", encoding="utf-8")
@@ -328,4 +351,3 @@ def test_training_title_is_not_rejected_by_fulp_optional_heuristic(monkeypatch):
     monkeypatch.setattr(main, "FulpFetcher", lambda: Fetcher())
     findings = main.run_scan(sources=["FULP"], no_ai=True)
     assert findings
-

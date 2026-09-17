@@ -37,6 +37,33 @@ def test_general_filter_rejects_unrelated_or_insufficient_evidence(description):
     page = BOPage(page_number=1, text=description, source="INDRA")
     assert KeywordFilter().search_page(page) == []
 
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "Buscamos a agentes de Service Desk con alemán. Requisitos: formación profesional.",
+        "Agentes de Service Desk con alemán. Requisitos: formación profesional.",
+        "Transformación digital e IT. Requisitos: soporte técnico a usuarios. Administración básica de Microsoft 365.",
+    ],
+)
+def test_fulp_service_desk_and_it_support_contexts_are_admitted(description):
+    page = BOPage(page_number=1, text=description, source="FULP")
+    assert len(KeywordFilter().search_page(page)) == 1
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        "Administrativo. Requisitos: registrar solicitudes y derivarlas al Service Desk.",
+        "Dependiente. Requisitos: soporte técnico a usuarios de audífonos.",
+        "Administrativo. Requisitos: registrar solicitudes y derivarlas a agentes de Service Desk.",
+        "Dependiente. Requisitos: soporte técnico a usuarios de audífonos y dispositivos auditivos.",
+    ],
+)
+def test_incidental_service_desk_and_generic_user_support_are_rejected(description):
+    page = BOPage(page_number=1, text=description, source="FULP")
+    assert KeywordFilter().search_page(page) == []
+
 def test_should_reject_title():
     # Use default config path (should load the default config which has our new rejection rules)
     kf = KeywordFilter()

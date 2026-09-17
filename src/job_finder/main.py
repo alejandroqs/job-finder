@@ -632,6 +632,8 @@ def run_scan(
                         source_type = "GSC"
                     elif _is_indra_html(content):
                         source_type = "INDRA"
+                    elif _is_fulp_html(content):
+                        source_type = "FULP"
                     elif "<rss" in content_lower:
                         source_type = "BOC"
                     elif "<html" in content_lower or "<!doctype" in content_lower:

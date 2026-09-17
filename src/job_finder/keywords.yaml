@@ -36,8 +36,8 @@ it_keywords:
   - '\b(?:devops|site\s+reliability\s+engineer|distributed\s+systems)\b'
   # Narrow corporate role phrases observed in FULP detail pages.
   - '\b(?:consultor(?:/a|a|es|as)?|consultants?)\s+(?:de\s+)?sap\b'
-  - '\bservice\s+desk\b'
-  - '\b(?:soporte|support)\s+(?:t[eé]cnico|technical)\s+(?:a\s+|to\s+|de\s+)?(?:usuarios?|users?)\b'
+  - '(?:^|\b(?:buscamos|busca|seleccionamos)\s+(?:a\s+)?)(?:(?:agente|agentes|t[eé]cnico|t[eé]cnicos|especialista|especialistas|analista|analistas|operador|operadores|consultor|consultores)\s+(?:de\s+)?service\s+desk|service\s+desk\s+(?:agent|analyst|technician|specialist))\b'
+  - '\b(?:soporte|support)\s+(?:t[eé]cnico|technical)\s+(?:a\s+|to\s+|de\s+)?(?:usuarios?|users?)\b(?=[\s\S]{0,180}\b(?:it|microsoft|service\s+desk|helpdesk|infraestructura|redes?\s+(?:inform[aá]ticas?|de\s+datos)|sistemas?\s+inform[aá]ticos?|software|hardware|aplicaciones?\s+corporativas?)\b)'
   - '\b(?:administraci[oó]n|administration|administrator)\s+(?:b[aá]sic[ao]s?\s+)?(?:de\s+)?(?:microsoft\s+365|microsoft\s+intune|microsoft\s+entra\s+id)\b'
   # Cybersecurity includes operations, engineering, offensive security and GRC.
   # Avoid standalone security/seguridad, SOC, IAM or GRC: they are ambiguous.

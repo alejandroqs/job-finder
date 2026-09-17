@@ -306,6 +306,28 @@ class FulpFetcher(BaseFetcher, BaseWebBoardFetcher):
             return content
         return str(getattr(response, "text", ""))
 
+    @classmethod
+    def _resolve_redirect_fetch_url(
+        cls,
+        base_url: str,
+        location: str,
+        *,
+        kind: str,
+        expected_id: Optional[str],
+    ) -> str:
+        """Resolve and validate a redirect while preserving a fetchable slash."""
+        resolved = urljoin(base_url, location)
+        normalised = cls.normalise_public_url(
+            resolved,
+            expected=kind,
+            expected_id=expected_id,
+        )
+        resolved_path = urlparse(resolved).path
+        normalised_parts = urlparse(normalised)
+        if resolved_path.endswith("/") and resolved_path != "/":
+            normalised = urlunparse(normalised_parts._replace(path=resolved_path))
+        return normalised
+
     def _logical_fetch(
         self,
         url: str,
@@ -345,9 +367,10 @@ class FulpFetcher(BaseFetcher, BaseWebBoardFetcher):
                     )
                 try:
                     # Validation happens before the next request is scheduled.
-                    current_url = self.normalise_public_url(
-                        urljoin(self.BASE_URL, location),
-                        expected=kind,
+                    current_url = self._resolve_redirect_fetch_url(
+                        current_url,
+                        location,
+                        kind=kind,
                         expected_id=expected_id,
                     )
                 except ValueError as exc:

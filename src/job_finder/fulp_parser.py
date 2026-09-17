@@ -152,6 +152,11 @@ class FulpParser(BaseParser, BaseWebBoardParser):
         r"ser[aá]|deber[ií]a\s+estar)\s+)?$",
         re.IGNORECASE,
     )
+    APPLICATION_ACTION_PATTERN = re.compile(
+        r"\b(?:inscrib(?:irme|irse|ete|irte)|aplicar|apply|compartir|share|"
+        r"imprimir|print|contactar|ayuda|help)\b",
+        re.IGNORECASE,
+    )
     PUBLICATION_CONTEXT = re.compile(
         r"(?:publicad[oa]|publicaci[oó]n|fecha\s+de\s+publicaci[oó]n)",
         re.IGNORECASE,
@@ -163,8 +168,7 @@ class FulpParser(BaseParser, BaseWebBoardParser):
     CLOSED_STATUS_CONTEXT = re.compile(
         r"\b(?:oferta(?:\s+de\s+empleo)?|proceso(?:\s+de\s+selecci[oó]n)?|"
         r"convocatoria|plazo(?:\s+de\s+(?:solicitud(?:es)?|inscripci[oó]n|"
-        r"presentaci[oó]n))?|solicitud(?:es)?|candidatura(?:s)?|"
-        r"inscripci[oó]n(?:es)?)\b",
+        r"presentaci[oó]n))?|inscripci[oó]n(?:es)?)\b",
         re.IGNORECASE,
     )
     CLOSED_STATUS_WORD_PATTERN = re.compile(
@@ -254,17 +258,18 @@ class FulpParser(BaseParser, BaseWebBoardParser):
 
     @classmethod
     def _owned_descendants(cls, owner: Tag, selector: str, kind: str) -> list[Tag]:
-        if kind == "card":
-            return [
-                element
-                for element in owner.select(selector)
-                if cls._nearest_card(element) is owner
-            ]
-        return [
-            element
-            for element in owner.select(selector)
-            if cls._nearest_root(element) is owner
-        ]
+        owned: list[Tag] = []
+        for element in owner.select(selector):
+            nearest = cls._nearest_card(element) if kind == "card" else cls._nearest_root(element)
+            if nearest is not owner:
+                continue
+            if kind == "card" and any(
+                cls._is_card(descendant) and cls._nearest_card(descendant) is not owner
+                for descendant in element.find_all(True)
+            ):
+                continue
+            owned.append(element)
+        return owned
 
     @classmethod
     def _is_application_control(cls, element: Tag) -> bool:
@@ -274,10 +279,27 @@ class FulpParser(BaseParser, BaseWebBoardParser):
             return False
         label = cls._normalise(element.get_text(" ", strip=True))
         href = str(element.get("href", ""))
-        return bool(
-            cls.IGNORED_CLASS_PATTERN.search(
-                f"{label} {href} {element.get('aria-label', '')} {element.get('title', '')}"
+        try:
+            FulpFetcher.normalise_public_url(
+                urljoin(FulpFetcher.BASE_URL, href),
+                expected="detail",
             )
+        except (TypeError, ValueError):
+            pass
+        else:
+            return False
+        attributes = " ".join(
+            (
+                href,
+                str(element.get("aria-label", "")),
+                str(element.get("title", "")),
+                str(element.get("id", "")),
+                " ".join(element.get("class", []) or []),
+            )
+        )
+        return bool(
+            cls.IGNORED_CLASS_PATTERN.search(attributes)
+            or cls.APPLICATION_ACTION_PATTERN.search(label)
         )
 
     @classmethod
@@ -318,7 +340,7 @@ class FulpParser(BaseParser, BaseWebBoardParser):
         return [
             card
             for card in panel.select(cls.CARD_SELECTOR)
-            if cls._nearest_card(card) is card
+            if not any(cls._is_card(parent) for parent in card.parents)
         ]
 
     @classmethod
@@ -380,8 +402,22 @@ class FulpParser(BaseParser, BaseWebBoardParser):
     def _detail_identity_urls(cls, soup: BeautifulSoup, root: Tag) -> list[tuple[str, str]]:
         """Return valid canonical/og identities without following HTML links."""
         candidates: list[tuple[str, str]] = []
-        head = soup.head if isinstance(soup.head, Tag) else soup
-        for link in head.find_all("link", href=True):
+        head = soup.head if isinstance(soup.head, Tag) else None
+        if head is not None:
+            links = head.find_all("link", href=True)
+            metas = head.find_all("meta")
+        else:
+            links = [
+                link
+                for link in soup.find_all("link", href=True)
+                if cls._nearest_root(link) is root
+            ]
+            metas = [
+                meta
+                for meta in soup.find_all("meta")
+                if cls._nearest_root(meta) is root
+            ]
+        for link in links:
             rel = {str(value).casefold() for value in (link.get("rel") or [])}
             if "canonical" not in rel:
                 continue
@@ -391,7 +427,7 @@ class FulpParser(BaseParser, BaseWebBoardParser):
                 )
             except (TypeError, ValueError):
                 continue
-        for meta in head.find_all("meta"):
+        for meta in metas:
             property_name = str(meta.get("property", meta.get("name", ""))).casefold()
             if property_name != "og:url" or not meta.get("content"):
                 continue
@@ -410,7 +446,7 @@ class FulpParser(BaseParser, BaseWebBoardParser):
                 )
             except (TypeError, ValueError):
                 continue
-        return candidates
+        return list(dict.fromkeys(candidates))
 
     @classmethod
     def _extract_public_id(cls, url: str) -> str:
@@ -495,7 +531,23 @@ class FulpParser(BaseParser, BaseWebBoardParser):
             return False
         if cls.NON_APPLICATION_CONTEXT.search(clause):
             return False
-        return cls.CLOSED_STATUS_CONTEXT.search(clause) is not None
+        if cls.CLOSED_STATUS_CONTEXT.search(clause) is not None:
+            return True
+        return re.search(
+            r"\b(?:solicitudes?|candidaturas?|inscripciones?)\s+"
+            r"(?:(?:est[aá]n?|han\s+sido|fueron)\s+)?$",
+            before_status,
+            re.IGNORECASE,
+        ) is not None
+
+    @classmethod
+    def _availability_text(cls, values: Iterable[str]) -> str:
+        """Join semantic fields without making their words one clause."""
+        return "\n".join(
+            cls._normalise(value)
+            for value in values
+            if cls._normalise(value)
+        )
 
     @classmethod
     def _availability(
@@ -503,7 +555,10 @@ class FulpParser(BaseParser, BaseWebBoardParser):
         text: str,
         reference_date: date,
     ) -> tuple[str, Optional[date], str, str]:
-        normalized = cls._normalise(text)
+        # Newlines represent owned HTML fields.  Collapsing them would make a
+        # status word in a qualification appear to describe the offer type.
+        normalized = re.sub(r"[^\S\n]+", " ", str(text or ""))
+        normalized = re.sub(r"\s+([,.;:!?])", r"\1", normalized).strip()
         closed_match = None
         for candidate in cls.CLOSED_PATTERN.finditer(normalized):
             if not cls._is_closed_offer_status(normalized, candidate):
@@ -528,7 +583,12 @@ class FulpParser(BaseParser, BaseWebBoardParser):
                 invalid_deadline = True
                 continue
             app_context = cls.APPLICATION_CONTEXT.search(clause)
-            deadline_context = cls.DEADLINE_CONTEXT.search(clause)
+            interval_context = re.search(
+                r"\b(?:del|desde|entre)\b[\s\S]*\b(?:hasta|al)\b",
+                clause,
+                re.IGNORECASE,
+            )
+            deadline_context = cls.DEADLINE_CONTEXT.search(clause) or interval_context
             if not app_context or not deadline_context:
                 continue
             clause_start, _ = cls._clause_bounds(normalized, match.start())
@@ -555,7 +615,14 @@ class FulpParser(BaseParser, BaseWebBoardParser):
                     continue
                 if (
                     cls.APPLICATION_CONTEXT.search(clause)
-                    and cls.DEADLINE_CONTEXT.search(clause)
+                    and (
+                        cls.DEADLINE_CONTEXT.search(clause)
+                        or re.search(
+                            r"\b(?:del|desde|entre)\b[\s\S]*\b(?:hasta|al)\b",
+                            clause,
+                            re.IGNORECASE,
+                        )
+                    )
                 ):
                     invalid_deadline = True
                     break
@@ -595,7 +662,7 @@ class FulpParser(BaseParser, BaseWebBoardParser):
     @classmethod
     def _recognised_location(cls, values: Iterable[str]) -> str:
         for value in values:
-            match = cls.LOCATION_PATTERN.search(value)
+            match = cls.LOCATION_PATTERN.fullmatch(cls._normalise(value))
             if match:
                 return cls._normalise(match.group(0))
         return ""
@@ -733,7 +800,16 @@ class FulpParser(BaseParser, BaseWebBoardParser):
     @classmethod
     def _listing_badges(cls, card: Tag) -> list[str]:
         values: list[str] = []
-        for badge in cls._owned_descendants(card, "span.etiqueta, span.etiqueta.tipo", "card"):
+        for badge in cls._owned_descendants(card, "span.etiqueta", "card"):
+            text = cls._owned_text(badge, card, "card")
+            if text and text not in values:
+                values.append(text)
+        return values
+
+    @classmethod
+    def _listing_type_badges(cls, card: Tag) -> list[str]:
+        values: list[str] = []
+        for badge in cls._owned_descendants(card, "span.etiqueta.tipo", "card"):
             text = cls._owned_text(badge, card, "card")
             if text and text not in values:
                 values.append(text)
@@ -756,15 +832,12 @@ class FulpParser(BaseParser, BaseWebBoardParser):
         return values[0]
 
     @classmethod
-    def _listing_type(cls, badges: list[str]) -> tuple[str, str, bool]:
-        type_values = [
-            value
-            for value in badges
-            if cls._normalise_type(value) != "UNKNOWN"
-        ]
-        if not type_values:
-            # A .tipo badge can carry an unknown future type. Preserve it.
-            type_values = badges[:1]
+    def _listing_type(
+        cls,
+        badges: list[str],
+        type_badges: Optional[list[str]] = None,
+    ) -> tuple[str, str, bool]:
+        type_values = list(type_badges if type_badges is not None else badges)
         if not type_values:
             return "", "UNKNOWN", False
         keys = {cls._type_equivalence_key(value) for value in type_values}
@@ -815,7 +888,10 @@ class FulpParser(BaseParser, BaseWebBoardParser):
             return None
 
         badges = self._listing_badges(card)
-        offer_type, type_normalized, type_conflict = self._listing_type(badges)
+        offer_type, type_normalized, type_conflict = self._listing_type(
+            badges,
+            self._listing_type_badges(card),
+        )
         if type_conflict:
             self._diagnose(
                 f"listing card {card_number} ({title}) has conflicting owned offer types; skipped."
@@ -858,21 +934,17 @@ class FulpParser(BaseParser, BaseWebBoardParser):
         vacancies_match = self.VACANCY_PATTERN.search(" ".join(badges) + " " + listing_description)
         vacancies = vacancies_match.group(0) if vacancies_match else ""
 
-        owned_text = self._normalise(
-            " ".join(
-                value
-                for value in (
-                    title,
-                    offer_type,
-                    f"Fecha de publicación: {publication_raw}" if publication_raw else "",
-                    employer_raw,
-                    location,
-                    contract,
-                    working_time,
-                    vacancies,
-                    listing_description,
-                )
-                if value
+        owned_text = self._availability_text(
+            (
+                title,
+                offer_type,
+                f"Fecha de publicación: {publication_raw}" if publication_raw else "",
+                employer_raw,
+                location,
+                contract,
+                working_time,
+                vacancies,
+                listing_description,
             )
         )
         status, deadline_date, deadline_raw, evidence = self._availability(
@@ -1154,19 +1226,15 @@ class FulpParser(BaseParser, BaseWebBoardParser):
                 f"detail {title} has unsupported publication metadata; retained as raw text."
             )
         reference = reference_date or date.today()
-        availability_text = self._normalise(
-            " ".join(
-                value
-                for value in (
-                    title,
-                    offer_type,
-                    *summary_values,
-                    description,
-                    tasks,
-                    profile,
-                    requirements,
-                )
-                if value
+        availability_text = self._availability_text(
+            (
+                title,
+                offer_type,
+                *summary_values,
+                description,
+                tasks,
+                profile,
+                requirements,
             )
         )
         status, deadline_date, deadline_raw, evidence = self._availability(
@@ -1216,14 +1284,23 @@ class FulpParser(BaseParser, BaseWebBoardParser):
                 "no se han recuperado los detalles de la oferta."
             )
 
-        # Put role, duties and eligibility ahead of long employer introductions
-        # so the existing Gemini 1,500-character window sees the useful evidence.
-        if record.profile:
-            parts.append(f"Perfil buscado: {record.profile}")
-        if record.requirements:
-            parts.append(f"Requisitos: {record.requirements}")
-        if record.tasks:
-            parts.append(f"Tareas a realizar: {record.tasks}")
+        # Keep bounded, source-backed sections early for the AI window.  The
+        # remainder is appended below, so truncating an optional long block
+        # never discards extracted evidence or duplicates its prefix.
+        deferred_sections: list[tuple[str, str]] = []
+        for label, value, limit in (
+            ("Requisitos", record.requirements, 600),
+            ("Descripción de la oferta", record.description, 600),
+            ("Tareas a realizar", record.tasks, 900),
+            ("Perfil buscado", record.profile, 600),
+        ):
+            if not value:
+                continue
+            early, continuation = cls._allocate_section(value, limit)
+            if early:
+                parts.append(f"{label}: {early}")
+            if continuation:
+                deferred_sections.append((f"{label} (continuación)", continuation))
 
         if record.employer:
             parts.append(f"Empresa: {record.employer}")
@@ -1246,11 +1323,38 @@ class FulpParser(BaseParser, BaseWebBoardParser):
 
         if record.summary_values:
             parts.append("Resumen de oferta: " + "; ".join(record.summary_values))
-        if record.description:
-            parts.append(f"Descripción de la oferta: {record.description}")
         if record.listing_description and not record.description:
             parts.append(f"Descripción del listado: {record.listing_description}")
+        parts.extend(f"{label}: {value}" for label, value in deferred_sections)
         return clean_text(" ".join(part for part in parts if part), lowercase=False)
+
+    @classmethod
+    def _allocate_section(cls, value: str, limit: int) -> tuple[str, str]:
+        """Keep ordered sentence units intact when allocating a section prefix."""
+        normalized = cls._normalise(value)
+        if not normalized:
+            return "", ""
+
+        units = [
+            unit.strip()
+            for unit in re.split(r"(?<=[.!?])\s+", normalized)
+            if unit.strip()
+        ]
+        prefix: list[str] = []
+        prefix_length = 0
+        split_at = len(units)
+        for index, unit in enumerate(units):
+            candidate_length = len(unit) + (1 if prefix else 0)
+            if prefix and prefix_length + candidate_length > limit:
+                split_at = index
+                break
+            if not prefix and len(unit) > limit:
+                split_at = index
+                break
+            prefix.append(unit)
+            prefix_length += candidate_length
+
+        return " ".join(prefix), " ".join(units[split_at:])
 
     def parse_detail(self, detail_html: str) -> str:
         """Extract one detail paragraph without any network access."""
@@ -1377,7 +1481,7 @@ class FulpParser(BaseParser, BaseWebBoardParser):
             page_number=page_number,
             text=self._record_text(record, listing_only=listing_only),
             section="Ofertas de empleo" + (" (evidencia limitada)" if listing_only else ""),
-            detected_organism=self.ORGANISM,
+            detected_organism=record.employer or "Empresa no identificada",
             source=self.SOURCE,
             url=record.url,
         )

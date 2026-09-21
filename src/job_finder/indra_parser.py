@@ -116,6 +116,23 @@ class IndraParser(BaseParser, BaseWebBoardParser):
         "role": "customfield2",
         "description": "description",
     }
+    STRUCTURED_COUNTRY_CODES = {
+        "portugal": "PT",
+        "pt": "PT",
+        "prt": "PT",
+        "brazil": "BR",
+        "brasil": "BR",
+        "br": "BR",
+        "bra": "BR",
+        "es": "ES",
+        "esp": "ES",
+        "espana": "ES",
+        "spain": "ES",
+        "mx": "MX",
+        "mex": "MX",
+        "mexico": "MX",
+    }
+    EXCLUDED_COUNTRY_CODES = {"PT", "BR"}
     SECTION_LABELS = {
         "description": {"descripcion", "descripción", "description", "resumen", "summary"},
         "requirements": {
@@ -1091,6 +1108,32 @@ class IndraParser(BaseParser, BaseWebBoardParser):
 
     @classmethod
     def _geography_decision(cls, job: IndraJob) -> tuple[bool, str, str]:
+        country_codes = cls._structured_country_codes(job.country, allow_conjunction=True)
+        location_codes = cls._structured_country_codes(job.location_raw)
+        excluded_codes = (country_codes | location_codes) & cls.EXCLUDED_COUNTRY_CODES
+        conflicting_country_evidence = bool(
+            country_codes and location_codes and country_codes.isdisjoint(location_codes)
+        )
+        if excluded_codes:
+            excluded_names = "/".join(sorted(excluded_codes))
+            conflict_note = (
+                " conflicting structured country/location evidence was also found."
+                if conflicting_country_evidence
+                else ""
+            )
+            return (
+                False,
+                "rejected",
+                "excluded country evidence in structured location metadata "
+                f"({excluded_names});{conflict_note}",
+            )
+        if conflicting_country_evidence:
+            return (
+                False,
+                "rejected",
+                "conflicting structured country/location evidence does not establish a safe geography",
+            )
+
         mode = job.work_mode_normalized
         if mode == "REMOTE":
             return True, "accepted", "explicit remote mode"
@@ -1120,6 +1163,47 @@ class IndraParser(BaseParser, BaseWebBoardParser):
         if re.fullmatch(r"[A-Za-z]{2,3}", last) or cls._comparison(last) in {"espana", "españa", "mexico", "méxico", "portugal", "brasil", "brazil"}:
             return last
         return ""
+
+    @classmethod
+    def _structured_country_codes(
+        cls, value: str, *, allow_conjunction: bool = False
+    ) -> set[str]:
+        """Extract exact country components without geocoding free-form location text.
+
+        Components are separated by the delimiters used by the portal's
+        structured location values. Parenthetical content is removed before
+        separator handling, so ``ES (client locations...)`` remains an ES
+        component while a street such as ``Avenida de Portugal`` is not
+        treated as Portugal. The scan is depth-aware: nested or unclosed
+        annotations remain opaque, while text after a closed annotation is
+        still considered.
+        Conjunctions are accepted only for the dedicated country field; using
+        them in location prose would turn phrases such as ``Las Palmas y
+        Portugal`` into unsupported country evidence.
+        """
+        normalized = cls._comparison(value)
+        if not normalized:
+            return set()
+        separators = r"[,;/|]"
+        if allow_conjunction:
+            separators = r"[,;/|]|\s+(?:and|y)\s+"
+        codes: set[str] = set()
+        outside_parentheses: list[str] = []
+        depth = 0
+        for character in normalized:
+            if character == "(":
+                depth += 1
+            elif character == ")":
+                if depth:
+                    depth -= 1
+            elif depth == 0:
+                outside_parentheses.append(character)
+
+        for component in re.split(separators, "".join(outside_parentheses)):
+            component = component.strip()
+            if component in cls.STRUCTURED_COUNTRY_CODES:
+                codes.add(cls.STRUCTURED_COUNTRY_CODES[component])
+        return codes
 
     @classmethod
     def _comparison(cls, value: str) -> str:

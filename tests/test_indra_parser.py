@@ -46,10 +46,16 @@ def _detail_html(
     title="Ingeniero de Datos",
     location="Madrid, ES",
     mode="Remoto",
+    country=None,
     body="Proceso de selección para ingeniería de datos con Python.",
     canonical=None,
 ):
     canonical = canonical or f"https://careers.indragroup.com/job/example/{job_id}/"
+    country_markup = (
+        f'<div class="joblayouttoken-label">País:</div><div>{country}</div>'
+        if country is not None
+        else ""
+    )
     return f"""
     <html><head><link rel="canonical" href="{canonical}"></head><body>
       <div class="job">
@@ -59,6 +65,7 @@ def _detail_html(
         <div data-careersite-propertyid="customfield3">Más de 2 años</div>
         <div data-careersite-propertyid="customfield4">{mode}</div>
         <div data-careersite-propertyid="customfield2">T IV</div>
+        <div class="country-field">{country_markup}</div>
         <div data-careersite-propertyid="description">
           <div class="jobdescription"><h2>Requisitos</h2><p>{body}</p></div>
         </div>
@@ -468,6 +475,240 @@ def test_geographic_policy_uses_mode_or_explicit_gran_canaria(location, mode, ex
         _detail_html(location=location, mode=mode),
     )
     assert IndraParser.is_geographically_eligible(job) is expected
+
+
+@pytest.mark.parametrize(
+    "country",
+    ["Portugal", " PT ", "PRT", "Brazil", "Brasil", " BR ", "BRA"],
+)
+@pytest.mark.parametrize("mode", ["Remoto", "Indiferente"])
+def test_structured_portugal_brazil_evidence_rejects_remote_and_flexible_details(country, mode):
+    job = IndraParser().parse_detail_job(
+        _detail_html(country=country, location="Madrid, ES", mode=mode)
+    )
+
+    allowed, status, reason = IndraParser._geography_decision(job)
+
+    assert (allowed, status) == (False, "rejected")
+    assert "excluded country" in reason
+
+
+def test_country_rejection_has_online_offline_parity_and_precedes_permissive_mode():
+    url = "https://careers.indragroup.com/job/example/901/"
+    listing = _search_page(
+        [("Portugal remote role", "/job/example/901/", "Madrid, ES", "19/09/2026")],
+        total=1,
+    )
+    detail = _detail_html(job_id="901", country="PT", mode="Remoto")
+    fetcher = MappingFetcher(pages={"initial": listing}, details={url: detail})
+
+    online = IndraParser(fetcher=fetcher).scan([])
+    offline = IndraParser().parse(io.BytesIO(detail.encode("utf-8")))
+
+    assert online == []
+    assert offline == []
+    assert fetcher.detail_calls == [url]
+
+
+def test_conflicting_country_evidence_is_rejected_and_diagnosed():
+    job = IndraParser().parse_detail_job(
+        _detail_html(country="ES", location="Lisboa, PT", mode="Remoto")
+    )
+
+    allowed, status, reason = IndraParser._geography_decision(job)
+
+    assert (allowed, status) == (False, "rejected")
+    assert "conflicting" in reason
+    assert "excluded country" in reason
+
+
+def test_excluded_country_in_bounded_multi_country_location_is_conservative():
+    job = IndraJob(
+        job_id="902",
+        title="Ingeniero de software",
+        url="https://careers.indragroup.com/job/example/902/",
+        location_raw="Madrid, ES / Lisboa, PT",
+        work_mode_raw="Remoto",
+        work_mode_normalized="REMOTE",
+    )
+
+    allowed, status, reason = IndraParser._geography_decision(job)
+
+    assert (allowed, status) == (False, "rejected")
+    assert "PT" in reason
+
+
+def test_explicit_multi_country_value_in_country_field_remains_excluded():
+    job = IndraParser().parse_detail_job(
+        _detail_html(country="España y Portugal", location="Madrid, ES", mode="Remoto")
+    )
+
+    assert IndraParser._structured_country_codes(job.country, allow_conjunction=True) == {
+        "ES",
+        "PT",
+    }
+    assert IndraParser.is_geographically_eligible(job) is False
+
+
+def test_country_is_inferred_from_a_bounded_structured_location_component():
+    job = IndraParser().parse_detail_job(
+        _detail_html(location="Remote / Portugal", mode="Remoto")
+    )
+
+    assert job.country == "Portugal"
+    assert IndraParser.is_geographically_eligible(job) is False
+
+
+def test_country_words_in_description_do_not_establish_excluded_location():
+    job = IndraParser().parse_detail_job(
+        _detail_html(
+            location="Madrid, ES",
+            mode="Remoto",
+            body="El equipo trabaja con clientes de Portugal y Brasil; el puesto es remoto.",
+        )
+    )
+
+    assert IndraParser._geography_decision(job) == (
+        True,
+        "accepted",
+        "explicit remote mode",
+    )
+
+
+@pytest.mark.parametrize(
+    ("job_id", "location"),
+    [
+        ("903", "Avenida de Portugal, Las Palmas de Gran Canaria, ES"),
+        ("904", "Las Palmas de Gran Canaria, ES (clientes en Brasil)"),
+    ],
+)
+def test_country_words_in_street_or_client_location_text_do_not_reject_html_detail(
+    job_id, location
+):
+    html = _detail_html(
+        job_id=job_id,
+        country="ES",
+        location=location,
+        mode="Remoto",
+    )
+    parser = IndraParser()
+    job = parser.parse_detail_job(html)
+
+    assert job.country == "ES"
+    assert IndraParser._structured_country_codes(job.location_raw) == {"ES"}
+    assert IndraParser._geography_decision(job) == (
+        True,
+        "accepted",
+        "explicit remote mode",
+    )
+    assert len(parser.parse(io.BytesIO(html.encode("utf-8")))) == 1
+
+
+@pytest.mark.parametrize(
+    ("job_id", "location"),
+    [
+        ("905", "Avenida de Portugal, Las Palmas de Gran Canaria, ES"),
+        ("906", "Las Palmas de Gran Canaria, ES (clientes en Brasil)"),
+    ],
+)
+def test_country_word_location_cases_have_online_offline_parity(job_id, location):
+    url = f"https://careers.indragroup.com/job/example/{job_id}/"
+    detail = _detail_html(job_id=job_id, country="ES", location=location, mode="Remoto")
+    listing = _search_page(
+        [("Spanish remote role", f"/job/example/{job_id}/", "Madrid, ES", "19/09/2026")],
+        total=1,
+    )
+    fetcher = MappingFetcher(pages={"initial": listing}, details={url: detail})
+
+    online = IndraParser(fetcher=fetcher).scan([])
+    offline = IndraParser().parse(io.BytesIO(detail.encode("utf-8")))
+
+    assert len(online) == len(offline) == 1
+    assert online[0].url == offline[0].url == url
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        "Las Palmas de Gran Canaria, ES (clientes en Brasil, Portugal, Mexico)",
+        "Las Palmas de Gran Canaria, ES (clientes en Brasil / Portugal / Mexico)",
+    ],
+)
+def test_parenthetical_country_annotations_are_opaque_in_html_location(location):
+    html = _detail_html(country="ES", location=location, mode="Remoto")
+    parser = IndraParser()
+    job = parser.parse_detail_job(html)
+
+    assert IndraParser._structured_country_codes(job.location_raw) == {"ES"}
+    assert IndraParser.is_geographically_eligible(job) is True
+    assert len(parser.parse(io.BytesIO(html.encode("utf-8")))) == 1
+
+
+def test_country_field_parenthetical_annotation_does_not_override_country_value():
+    job = IndraParser().parse_detail_job(
+        _detail_html(
+            country="ES (clientes en Portugal y Brasil)",
+            location="Madrid, ES",
+            mode="Remoto",
+        )
+    )
+
+    assert IndraParser._structured_country_codes(
+        job.country, allow_conjunction=True
+    ) == {"ES"}
+    assert IndraParser.is_geographically_eligible(job) is True
+
+
+def test_real_country_component_after_parenthetical_annotation_remains_excluded():
+    job = IndraParser().parse_detail_job(
+        _detail_html(
+            country="ES (nota), PT",
+            location="Madrid, ES",
+            mode="Remoto",
+        )
+    )
+
+    assert IndraParser._structured_country_codes(
+        job.country, allow_conjunction=True
+    ) == {"ES", "PT"}
+    assert IndraParser.is_geographically_eligible(job) is False
+
+
+def test_parenthetical_country_annotation_has_online_offline_parity():
+    job_id = "907"
+    url = f"https://careers.indragroup.com/job/example/{job_id}/"
+    detail = _detail_html(
+        job_id=job_id,
+        country="ES",
+        location="Las Palmas de Gran Canaria, ES (clientes en Brasil, Portugal, Mexico)",
+        mode="Remoto",
+    )
+    listing = _search_page(
+        [("Spanish remote role", f"/job/example/{job_id}/", "Madrid, ES", "19/09/2026")],
+        total=1,
+    )
+    fetcher = MappingFetcher(pages={"initial": listing}, details={url: detail})
+
+    online = IndraParser(fetcher=fetcher).scan([])
+    offline = IndraParser().parse(io.BytesIO(detail.encode("utf-8")))
+
+    assert len(online) == len(offline) == 1
+    assert online[0].url == offline[0].url == url
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        "Las Palmas de Gran Canaria, ES (clientes en Brasil",
+        "Las Palmas de Gran Canaria, ES (clientes en (Brasil), Portugal)",
+    ],
+)
+def test_malformed_or_nested_parentheses_do_not_expose_annotation_countries(location):
+    html = _detail_html(country="ES", location=location, mode="Remoto")
+    job = IndraParser().parse_detail_job(html)
+
+    assert IndraParser._structured_country_codes(job.location_raw) == {"ES"}
+    assert IndraParser.is_geographically_eligible(job) is True
 
 
 def test_geographic_policy_does_not_read_unrelated_description_prose():

@@ -53,7 +53,9 @@ class GeminiValidator(BaseAIValidator):
     def _candidate_identity(ann: ParsedAnnouncement) -> tuple[str, ...]:
         """Return the bounded identity used throughout batch validation.
 
-        Most existing sources intentionally retain URL-only deduplication.
+        Most existing sources intentionally retain URL-only deduplication
+        within the source. A source is part of the identity so that an
+        identical URL from two source adapters cannot inherit one verdict.
         GEURSA and GSC can legitimately emit several distinct cards without
         unique navigable URLs, so a shared source-page URL is not sufficient
         identity.
@@ -67,7 +69,7 @@ class GeminiValidator(BaseAIValidator):
                 ann.description or "",
                 ann.url or "",
             )
-        return ("URL", ann.url or "")
+        return (ann.source or "", "URL", ann.url or "")
 
     def __init__(self, api_key: str = None):
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
@@ -204,7 +206,8 @@ class GeminiValidator(BaseAIValidator):
                 desc = desc[:1500] + "..."
             jobs_to_send.append({
                 "id": idx,
-                "text": desc
+                "source": ann.source,
+                "text": desc,
             })
         
         jobs_json_str = json.dumps(jobs_to_send, ensure_ascii=False)

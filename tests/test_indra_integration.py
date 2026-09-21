@@ -134,6 +134,7 @@ def test_indra_capture_fake_gemini_payload_keeps_ids_and_metadata_in_window(monk
     assert len(captured) == 1
     payload = json.loads(captured[0][1].split("<context>\n", 1)[1].split("\n</context>", 1)[0])
     assert [job["id"] for job in payload] == [0, 1]
+    assert [job["source"] for job in payload] == ["INDRA", "INDRA"]
     assert all(len(job["text"]) <= 1503 for job in payload)
     assert all(job["text"].index("Requirements:") < 1500 for job in payload)
     assert all("Work mode:" in job["text"] and "Location:" in job["text"] for job in payload)
@@ -157,6 +158,36 @@ def test_indra_geographic_rejection_happens_before_ai(monkeypatch):
     monkeypatch.setattr(gemini_validator, "GeminiValidator", ExplodingValidator)
 
     assert main.run_scan(sources=["INDRA"], no_ai=False) == []
+
+
+def test_indra_country_rejection_happens_before_shared_filter_even_with_no_ai(monkeypatch):
+    class PortugalFixtureFetcher(FixtureIndraFetcher):
+        def fetch_detail(self, detail_url):
+            detail = super().fetch_detail(detail_url)
+            return detail.replace(
+                '<div data-careersite-propertyid="description">',
+                '<div class="country-field"><span class="joblayouttoken-label">País:</span>'
+                '<span>PT</span></div>'
+                '<div data-careersite-propertyid="description">',
+            )
+
+    class ExplodingKeywordFilter:
+        portal_search_keywords = []
+
+        @staticmethod
+        def should_reject_title(title):
+            del title
+            return False
+
+        @staticmethod
+        def search_page(page):
+            del page
+            raise AssertionError("country-rejected offers must not reach the shared filter")
+
+    monkeypatch.setattr(main, "IndraFetcher", PortugalFixtureFetcher)
+    monkeypatch.setattr(main, "KeywordFilter", lambda **kwargs: ExplodingKeywordFilter())
+
+    assert main.run_scan(sources=["INDRA"], no_ai=True) == []
 
 
 def test_indra_no_ai_skips_validator_construction(monkeypatch):

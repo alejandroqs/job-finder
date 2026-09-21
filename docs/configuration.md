@@ -16,7 +16,7 @@ Source of truth: [`main.py`](../src/job_finder/main.py), [`.env.example`](../.en
 | `--file` | local path, omitted by default | Parses an offline PDF, XML/RSS, HTML, CSV, or JSON file and auto-detects the source. Mutually exclusive with `--date`. Indra routing accepts a bounded detail signature or an explicitly named `indra` file, while detail parsing still requires a reliable official identity; FULP routing accepts a bounded `fulp` filename token or supported list/detail structure, and offline FULP details still require canonical/`og:url` identity; listing snapshots do not infer missing detail evidence. |
 | `--source`, `-s` | one of `BOP`, `BOC`, `BOE`, `SAGULPA`, `GUAGUAS`, `GEURSA`, `GSC`, `AENA`, `INDRA`, `FULP`, `EPSO`, `EURES`, `EULISA`, `EU`, `ES`, `ALL`; default `ALL` | Selects individual sources or a group. |
 | `--config` | optional path | Replaces the default `src/job_finder/keywords.yaml`. |
-| `--no-ai` | false by default | Skips the Gemini validation stage. It does not disable fetching, exports, or notifications. |
+| `--no-ai` | false by default | Skips the Gemini validation stage, including the Indra-only SAP/proprietary-platform preference. It does not disable parser-stage country exclusion, fetching, exports, or notifications. |
 | `--output` | `findings.md` | Destination overwritten by the selected exporter. |
 | `--format` | `markdown` or `html`; default `markdown` | Selects the exporter. An `.html` output suffix overrides the format. |
 
@@ -79,6 +79,9 @@ Gemini receives at most the first 1,500 characters of the normalized paragraph.
 The prompt covers public and private employment, including cybersecurity roles
 without coding or data/AI duties. It distinguishes cyber work from physical
 security and unrelated compliance, treats source instructions as untrusted,
-and retains plausible ambiguous recruitment with low confidence. It does not
-establish international contractual eligibility or personal suitability.
+and retains plausible ambiguous recruitment with low confidence. Each input
+also carries an application-supplied source field; only `INDRA` activates the
+additional SAP and narrowly defined named proprietary-platform preference.
+It does not establish international contractual eligibility or personal
+suitability. A disabled or failing validator retains candidates by design.
 These are prompt instructions, not guarantees of live model behaviour.

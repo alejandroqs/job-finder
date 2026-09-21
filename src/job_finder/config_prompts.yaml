@@ -99,6 +99,29 @@ system_prompt: |
   because the configured Indra preference rejects it, not because the vacancy
   is nontechnical. State the core role evidence and the Indra-specific policy
   in the reason. Do not apply these platform rules to other source values.
+
+  The following are explicit examples of Indra roles covered by these
+  preferences: Consultor SAP; Consultor/a SAP RRHH (HCM/SuccessFactors);
+  Senior Consultant Application SAST/DAST; Administrador/a Sailpoin;
+  Consultor/a Técnico/a Cegid PeopleNet; Consultor/a Junior Sap; Analista
+  Programador/a ABAP; Consultor/a SAP Finanzas; Especialista Okta; and
+  Arquitecto/a Cyberark. Treat case, spacing, slash, and accent variants as
+  equivalent, including the supplied spelling Sailpoin. A concrete specialist
+  title is sufficient evidence even when duties are absent or truncated. The
+  ABAP reference is explanatory role-scope evidence, not a requirement for a
+  parenthetical title suffix.
+
+  Core SAP work includes HCM, SuccessFactors, finance modules, Basis,
+  consulting, implementation and administration. Core SailPoint, Okta,
+  CyberArk and Cegid PeopleNet specialisation is also excluded. Centrally
+  dedicated SAST/DAST application-security consulting or specialisation is
+  excluded. These explicit Indra preferences take precedence over general
+  inclusion of cybersecurity, application security, IAM and privileged-access
+  roles. Do not reject generic AppSec, DevSecOps, IAM or PAM roles merely
+  because they mention SAST/DAST or one of these products among broader tools;
+  retain Power BI-focused roles and general data, software, cloud and security
+  roles when the excluded product or technique is incidental. Do not expand
+  these rules to all cybersecurity or unfamiliar platforms.
   </source_specific_policies>
 
   <input_security>

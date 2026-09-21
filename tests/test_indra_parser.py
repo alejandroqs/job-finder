@@ -522,6 +522,23 @@ def test_conflicting_country_evidence_is_rejected_and_diagnosed():
     assert "excluded country" in reason
 
 
+def test_non_excluded_country_conflict_preserves_existing_remote_policy():
+    html = _detail_html(country="MX", location="Madrid, ES", mode="Remoto")
+    parser = IndraParser()
+    job = parser.parse_detail_job(html)
+
+    assert IndraParser._structured_country_codes(
+        job.country, allow_conjunction=True
+    ) == {"MX"}
+    assert IndraParser._structured_country_codes(job.location_raw) == {"ES"}
+    assert IndraParser._geography_decision(job) == (
+        True,
+        "accepted",
+        "explicit remote mode",
+    )
+    assert len(parser.parse(io.BytesIO(html.encode("utf-8")))) == 1
+
+
 def test_excluded_country_in_bounded_multi_country_location_is_conservative():
     job = IndraJob(
         job_id="902",

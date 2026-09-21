@@ -1127,13 +1127,6 @@ class IndraParser(BaseParser, BaseWebBoardParser):
                 "excluded country evidence in structured location metadata "
                 f"({excluded_names});{conflict_note}",
             )
-        if conflicting_country_evidence:
-            return (
-                False,
-                "rejected",
-                "conflicting structured country/location evidence does not establish a safe geography",
-            )
-
         mode = job.work_mode_normalized
         if mode == "REMOTE":
             return True, "accepted", "explicit remote mode"

@@ -100,8 +100,9 @@ def test_source_groups_include_geursa_and_keep_eu_unchanged(monkeypatch):
         "AENA",
         "INDRA",
         "FULP",
+        "SODETEGC",
     }
-    assert len(calls) == 10
+    assert len(calls) == 11
 
     calls.clear()
     main.run_scan(sources=["EU"], no_ai=True)
@@ -121,11 +122,12 @@ def test_source_groups_include_geursa_and_keep_eu_unchanged(monkeypatch):
         "AENA",
         "INDRA",
         "FULP",
+        "SODETEGC",
         "EPSO",
         "EURES",
         "EULISA",
     }
-    assert len(calls) == 13
+    assert len(calls) == 14
 
     calls.clear()
     main.run_scan(no_ai=True)
@@ -140,11 +142,12 @@ def test_source_groups_include_geursa_and_keep_eu_unchanged(monkeypatch):
         "AENA",
         "INDRA",
         "FULP",
+        "SODETEGC",
         "EPSO",
         "EURES",
         "EULISA",
     }
-    assert len(calls) == 13
+    assert len(calls) == 14
 
 
 def test_offline_detection_supports_named_generic_long_header_and_htm_files(

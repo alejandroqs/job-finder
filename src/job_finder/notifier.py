@@ -1,9 +1,15 @@
 import os
 import sys
 import time
+import html
+import re
 from typing import List
 import requests
 from job_finder.interfaces import ParsedAnnouncement
+
+
+def _escape_discord_markdown(value: str) -> str:
+    return re.sub(r"([\\`*_{}\[\]()#+\-.!|<>~])", r"\\\1", value)
 
 def send_notifications(announcements: List[ParsedAnnouncement]) -> None:
     """
@@ -46,30 +52,57 @@ def _send_to_discord(announcements: List[ParsedAnnouncement], webhook_url: str) 
         embeds = []
         
         for ann in chunk:
+            is_notice = ann.kind == "source_notice"
             embed = {
-                "title": f"📌 {ann.organism.upper()}"[:256],
-                "description": ann.description[:2048],
+                "title": (
+                    f"⚠️ Source-page notice — {ann.source}"
+                    if is_notice
+                    else f"📌 {ann.organism.upper()}"
+                )[:256],
+                "description": (
+                    _escape_discord_markdown(ann.description)
+                    if is_notice
+                    else ann.description
+                )[:2048],
                 "color": 3447003,  # Premium Blue color
-                "fields": [
-                    {
-                        "name": "Source / Location",
-                        "value": f"{ann.source} (Page/Item {ann.page_number})",
-                        "inline": True
-                    },
-                    {
-                        "name": "Keywords Matched",
-                        "value": ", ".join(f"`{k}`" for k in ann.matched_keywords)[:1024] or "None",
-                        "inline": True
-                    }
-                ]
+                "fields": (
+                    [
+                        {
+                            "name": "Notice",
+                            "value": "Page content differs from its reference; manual review required. Not a confirmed vacancy.",
+                            "inline": False,
+                        }
+                    ]
+                    if is_notice
+                    else [
+                        {
+                            "name": "Source / Location",
+                            "value": f"{ann.source} (Page/Item {ann.page_number})",
+                            "inline": True,
+                        },
+                        {
+                            "name": "Keywords Matched",
+                            "value": ", ".join(f"`{k}`" for k in ann.matched_keywords)[:1024] or "None",
+                            "inline": True,
+                        },
+                    ]
+                ),
             }
             if ann.url:
                 embed["url"] = ann.url
                 
             embeds.append(embed)
 
+        chunk_has_notice = any(ann.kind == "source_notice" for ann in chunk)
+        chunk_has_job = any(ann.kind == "job" for ann in chunk)
+        if chunk_has_notice and chunk_has_job:
+            heading = "📌 IT job findings and source-page notices; notices are not confirmed vacancies."
+        elif chunk_has_notice:
+            heading = "⚠️ Source-page notice for manual review; this is not a confirmed vacancy."
+        else:
+            heading = "🚀 **New IT Job Opportunities Found!**"
         payload = {
-            "content": "🚀 **New IT Job Opportunities Found!**" if i == 0 else "",
+            "content": heading if i == 0 else "",
             "embeds": embeds
         }
         
@@ -86,24 +119,35 @@ def _send_to_telegram(announcements: List[ParsedAnnouncement], bot_token: str, c
     for ann in announcements:
         # Formulate HTML content
         # Escape HTML entities for safety
-        organism = ann.organism.upper().replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-        description = ann.description.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        organism = html.escape(ann.organism.upper(), quote=True)
+        description = html.escape(ann.description, quote=True)
         if len(description) > 3000:
             description = description[:3000] + "..."
 
-        keywords = ", ".join(f"<code>{k}</code>" for k in ann.matched_keywords)
-        
-        message_lines = [
-            f"📌 <b>{organism}</b>",
-            "",
-            description,
-            "",
-            f"🔑 <b>Keywords:</b> {keywords}",
-            f"🌐 <b>Source:</b> {ann.source} (Page/Item {ann.page_number})"
-        ]
+        if ann.kind == "source_notice":
+            message_lines = [
+                f"⚠️ <b>Source-page notice: {html.escape(ann.source, quote=True)}</b>",
+                "",
+                description,
+                "",
+                "Manual review required. This does not confirm a vacancy.",
+            ]
+        else:
+            keywords = ", ".join(f"<code>{html.escape(k, quote=True)}</code>" for k in ann.matched_keywords)
+            message_lines = [
+                f"📌 <b>{organism}</b>",
+                "",
+                description,
+                "",
+                f"🔑 <b>Keywords:</b> {keywords}",
+                f"🌐 <b>Source:</b> {html.escape(ann.source, quote=True)} (Page/Item {ann.page_number})",
+            ]
 
         if ann.url:
-            message_lines.append(f"🔗 <a href='{ann.url}'>Link to announcement</a>")
+            label = "Review official page" if ann.kind == "source_notice" else "Link to announcement"
+            message_lines.append(
+                f"🔗 <a href='{html.escape(ann.url, quote=True)}'>{label}</a>"
+            )
 
         payload = {
             "chat_id": chat_id,

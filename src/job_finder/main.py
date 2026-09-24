@@ -6,6 +6,7 @@ import sys
 import textwrap
 import os
 import tempfile
+import unicodedata
 from pathlib import Path
 from typing import List, Optional
 
@@ -61,6 +62,12 @@ from job_finder.eulisa_parser import EULISAParser
 from job_finder.keyword_filter import KeywordFilter
 from job_finder.interfaces import ParsedAnnouncement, BOPage
 from job_finder.notifier import send_notifications
+from job_finder.sodetegc_fetcher import SODETEGCFetchError, SODETEGCFetcher
+from job_finder.sodetegc_parser import (
+    ObservationStatus,
+    SODETEGCObservation,
+    SODETEGCParser,
+)
 import threading
 
 
@@ -75,6 +82,7 @@ ES_SOURCES = (
     "AENA",
     "INDRA",
     "FULP",
+    "SODETEGC",
 )
 EU_SOURCES = ("EPSO", "EURES", "EULISA")
 ALL_SOURCES = ES_SOURCES + EU_SOURCES
@@ -121,6 +129,14 @@ def parse_date(date_str: str) -> datetime.date:
 
 def format_announcement(ann: ParsedAnnouncement) -> str:
     """Formats a parsed announcement into a beautiful, premium terminal output."""
+    if ann.kind == "source_notice":
+        description = _terminal_safe_text(ann.description)
+        wrapper = textwrap.TextWrapper(width=76, initial_indent="   ", subsequent_indent="   ")
+        parts = [f"⚠️ Source-page notice — {ann.source}", wrapper.fill(description)]
+        if ann.url:
+            parts.append(f"   🔗 Official page for review: {ann.url}")
+        return "\n".join(parts)
+
     source_label = f"{ann.source} - Página" if ann.source == "BOP" else f"{ann.source} - Item"
     header = f"📌 {ann.organism.upper()} ({source_label} {ann.page_number})"
     
@@ -138,20 +154,99 @@ def format_announcement(ann: ParsedAnnouncement) -> str:
     return "\n".join(parts)
 
 
+def _terminal_safe_text(value: str) -> str:
+    """Remove control and bidi-format characters from untrusted visible text."""
+    return "".join(
+        " " if unicodedata.category(character) in {"Cc", "Cf"} else character
+        for character in value
+    )
+
+
+def _markdown_escape(value: str) -> str:
+    """Escape untrusted text before placing it in Markdown output."""
+    special = "\\`*_{}[]<>#+-.!|()~"
+    return "".join(f"\\{character}" if character in special else character for character in value)
+
+
+def _sodetegc_notice(observation: SODETEGCObservation) -> Optional[ParsedAnnouncement]:
+    if observation.status is not ObservationStatus.CHANGED:
+        return None
+
+    excerpt = _terminal_safe_text(observation.owned_text).strip()
+    excerpt = " ".join(excerpt.split())[:500]
+    if excerpt:
+        description = (
+            "El contenido visible de la sección «Convocatorias abiertas» difiere "
+            "del texto de referencia. Revisión manual necesaria. "
+            f"Extracto: «{excerpt}». Este aviso no confirma una vacante ni la elegibilidad."
+        )
+    else:
+        description = (
+            "La sección «Convocatorias abiertas» está vacía y el texto de referencia "
+            "no aparece. Revisión manual necesaria. Este aviso no confirma una vacante "
+            "ni la elegibilidad."
+        )
+    return ParsedAnnouncement(
+        organism="SODETEGC · aviso de seguimiento",
+        description=description,
+        page_number=0,
+        matched_keywords=[],
+        source="SODETEGC",
+        url=SODETEGCParser.URL,
+        kind="source_notice",
+    )
+
+
+def _announcement_key(announcement: ParsedAnnouncement) -> tuple:
+    return (
+        announcement.kind,
+        announcement.source,
+        announcement.organism,
+        announcement.description,
+        announcement.page_number,
+        tuple(announcement.matched_keywords),
+        announcement.url,
+    )
+
+
 def save_markdown_findings(announcements: List[ParsedAnnouncement], output_path: Path) -> None:
     """Saves the scanning findings to a human-readable markdown file, overwriting it."""
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    source_notices = [ann for ann in announcements if ann.kind == "source_notice"]
+    job_findings = [ann for ann in announcements if ann.kind == "job"]
     try:
         with open(output_path, "w", encoding="utf-8") as f:
-            f.write("# 🔎 IT Job Findings\n\n")
+            if source_notices:
+                title = (
+                    "# 🔎 Source-page Notices"
+                    if not job_findings
+                    else "# 🔎 IT Job Findings and Source-page Notices"
+                )
+            else:
+                title = "# 🔎 IT Job Findings"
+            f.write(f"{title}\n\n")
             f.write(f"**Scan Date:** {now_str}\n")
-            f.write(f"**Total Findings:** {len(announcements)}\n\n")
+            if source_notices:
+                f.write(f"**Job Findings:** {len(job_findings)}\n")
+                f.write(f"**Source Notices:** {len(source_notices)}\n\n")
+            else:
+                f.write(f"**Total Findings:** {len(announcements)}\n\n")
             f.write("---\n\n")
 
             if not announcements:
                 f.write("ℹ️ No IT-related jobs found matching your filters in any source.\n")
             else:
                 for i, ann in enumerate(announcements, 1):
+                    if ann.kind == "source_notice":
+                        f.write(f"## ⚠️ Source-page notice: {_markdown_escape(ann.source)}\n\n")
+                        f.write("**Review required:**\n\n")
+                        f.write(f"{_markdown_escape(ann.description.strip())}\n\n")
+                        if ann.url:
+                            f.write(f"**Official page:** [Review source page]({ann.url})\n\n")
+                        if i < len(announcements):
+                            f.write("---\n\n")
+                        continue
+
                     source_label = f"{ann.source} - Página" if ann.source == "BOP" else f"{ann.source} - Item"
                     f.write(f"## 📌 {ann.organism.upper()} ({source_label} {ann.page_number})\n\n")
                     f.write("**Description:**\n")
@@ -190,6 +285,8 @@ def print_source_header(source_name: str) -> None:
         title = "INDRA GROUP - CAREERS PORTAL"
     elif source_name == "FULP":
         title = "FULP - UNIVERSITY EMPLOYMENT BOARD"
+    elif source_name == "SODETEGC":
+        title = "SODETEGC - EMPLOYMENT PAGE STATUS"
     elif source_name == "EPSO":
         title = "EPSO - EUROPEAN UNION OPEN DATA"
     elif source_name == "EURES":
@@ -228,6 +325,11 @@ def _is_fulp_html(html: str) -> bool:
     return FulpParser.has_supported_structure(html)
 
 
+def _is_sodetegc_html(html: str) -> bool:
+    """Recognize SODETEGC only from its official identity and page structure."""
+    return SODETEGCParser.has_page_signature(html)
+
+
 def _has_bounded_gsc_filename(filename: str) -> bool:
     """Recognize a GSC filename token without matching words such as ``gscout``."""
     return re.search(r"(?<![a-z0-9])gsc(?![a-z0-9])", filename.casefold()) is not None
@@ -249,7 +351,7 @@ def _scan_single_source(
     target_date: Optional[datetime.date],
     is_default_date: bool,
     is_lambda: bool,
-    kf: KeywordFilter
+    kf: Optional[KeywordFilter]
 ) -> tuple[List[ParsedAnnouncement], str]:
     """Scrapes and scans a single source, capturing all console output to a buffer."""
     import io
@@ -512,12 +614,42 @@ def _scan_single_source(
             except Exception as e:
                 print(f"❌ eu-LISA download/parse failed: {e}", file=sys.stderr)
 
+        elif src == "SODETEGC":
+            print(
+                "📅 SODETEGC evaluates the current employment-page response; "
+                "target_date does not reconstruct historical page state."
+            )
+            try:
+                html = SODETEGCFetcher().fetch()
+            except SODETEGCFetchError as e:
+                observation = SODETEGCObservation(
+                    status=ObservationStatus.UNVERIFIABLE,
+                    diagnostic=str(e),
+                )
+            else:
+                observation = SODETEGCParser.parse(html)
+
+            if observation.status is ObservationStatus.UNVERIFIABLE:
+                print(f"⚠️ SODETEGC UNVERIFIABLE: {observation.diagnostic}", file=sys.stderr)
+                return [], buffer.getvalue()
+            if observation.status is ObservationStatus.BASELINE:
+                print("ℹ️ SODETEGC active section matches its reference text; no source notice.")
+                return [], buffer.getvalue()
+
+            notice = _sodetegc_notice(observation)
+            if notice is not None:
+                print("⚠️ SODETEGC source-page notice created for manual review.")
+                return [notice], buffer.getvalue()
+            return [], buffer.getvalue()
+
         # Scan the pages/items for this source
         src_announcements = []
         if src == "GSC":
             print(f"📊 GSC included records: {len(pages)}")
         if pages:
             print(f"🔎 Scanning {len(pages)} pages/entries in this bulletin...")
+            if kf is None:
+                raise RuntimeError(f"Keyword filter is unavailable for ordinary source {src}.")
             for page in pages:
                 src_announcements.extend(kf.search_page(page))
 
@@ -556,12 +688,17 @@ def run_scan(
     Core execution logic for scanning.
     Extracts IT job announcements from designated Spanish & European bulletins.
     """
-    # Initialize keyword filter
-    try:
-        kf = KeywordFilter(config_path=config_path)
-    except Exception as e:
-        print(f"❌ Error loading keyword configuration: {e}", file=sys.stderr)
-        raise e
+    kf: Optional[KeywordFilter] = None
+
+    def get_keyword_filter() -> KeywordFilter:
+        nonlocal kf
+        if kf is None:
+            try:
+                kf = KeywordFilter(config_path=config_path)
+            except Exception as e:
+                print(f"❌ Error loading keyword configuration: {e}", file=sys.stderr)
+                raise
+        return kf
         
     all_announcements: List[ParsedAnnouncement] = []
     
@@ -591,7 +728,13 @@ def run_scan(
         elif suffix in (".html", ".htm"):
             # Distinguish between bounded source layouts and named HTML snapshots.
             file_name = local_file.name.lower()
-            if "geursa" in file_name:
+            try:
+                local_html = local_file.read_text(encoding="utf-8-sig", errors="replace")
+            except OSError:
+                local_html = ""
+            if _is_sodetegc_html(local_html):
+                source_type = "SODETEGC"
+            elif "geursa" in file_name:
                 source_type = "GEURSA"
             elif "guaguas" in file_name:
                 source_type = "GUAGUAS"
@@ -610,7 +753,9 @@ def run_scan(
                     with open(local_file, "r", encoding="utf-8", errors="replace") as f:
                         html = f.read()
                     html_lower = html.lower()
-                    if _is_geursa_html(html):
+                    if _is_sodetegc_html(html):
+                        source_type = "SODETEGC"
+                    elif _is_geursa_html(html):
                         source_type = "GEURSA"
                     elif _is_guaguas_html(html):
                         source_type = "GUAGUAS"
@@ -643,7 +788,9 @@ def run_scan(
                     with open(local_file, "r", encoding="utf-8", errors="replace") as f:
                         content = f.read()
                     content_lower = content.lower()
-                    if _is_geursa_html(content):
+                    if _is_sodetegc_html(content):
+                        source_type = "SODETEGC"
+                    elif _is_geursa_html(content):
                         source_type = "GEURSA"
                     elif _is_guaguas_html(content):
                         source_type = "GUAGUAS"
@@ -676,7 +823,9 @@ def run_scan(
                     with open(local_file, "r", encoding="utf-8", errors="replace") as f:
                         content = f.read()
                     content_lower = content.lower()
-                    if "geursa" in local_file.name.lower() or _is_geursa_html(content):
+                    if _is_sodetegc_html(content):
+                        source_type = "SODETEGC"
+                    elif "geursa" in local_file.name.lower() or _is_geursa_html(content):
                         source_type = "GEURSA"
                     elif "guaguas" in local_file.name.lower() or _is_guaguas_html(content):
                         source_type = "GUAGUAS"
@@ -703,7 +852,9 @@ def run_scan(
                 else:
                     with open(local_file, "r", encoding="utf-8", errors="replace") as f:
                         content = f.read()
-                    if _is_gsc_html(content):
+                    if _is_sodetegc_html(content):
+                        source_type = "SODETEGC"
+                    elif _is_gsc_html(content):
                         source_type = "GSC"
                     elif _is_indra_html(content):
                         source_type = "INDRA"
@@ -718,6 +869,32 @@ def run_scan(
                 
         print(f"📂 Scanning local {source_type} file: {local_file.name}")
         print_source_header(source_type)
+
+        if source_type == "SODETEGC":
+            try:
+                local_html = local_file.read_bytes().decode("utf-8-sig", errors="strict")
+                observation = SODETEGCParser.parse(local_html)
+            except UnicodeDecodeError:
+                observation = SODETEGCObservation(
+                    status=ObservationStatus.UNVERIFIABLE,
+                    diagnostic="local HTML is not valid UTF-8",
+                )
+            except OSError as e:
+                observation = SODETEGCObservation(
+                    status=ObservationStatus.UNVERIFIABLE,
+                    diagnostic=f"could not read local HTML ({type(e).__name__})",
+                )
+
+            if observation.status is ObservationStatus.UNVERIFIABLE:
+                print(f"⚠️ SODETEGC UNVERIFIABLE: {observation.diagnostic}", file=sys.stderr)
+                return []
+            if observation.status is ObservationStatus.BASELINE:
+                print("ℹ️ SODETEGC active section matches its reference text; no source notice.")
+                return []
+            notice = _sodetegc_notice(observation)
+            return [notice] if notice is not None else []
+
+        kf = get_keyword_filter()
         
         try:
             if source_type == "BOP":
@@ -777,6 +954,9 @@ def run_scan(
             sources_to_run = list(ES_SOURCES)
         else:
             sources_to_run = list(sources)
+
+        if any(source != "SODETEGC" for source in sources_to_run):
+            get_keyword_filter()
         
         # Ensure stdout/stderr are wrapped in ThreadLocalStream for parallel thread buffering if running multiple
         if len(sources_to_run) > 1:
@@ -806,20 +986,54 @@ def run_scan(
             run_thread(sources_to_run[0])
 
         # Print all buffered outputs sequentially and collect announcements
+        sodetegc_notice_added = False
         for src in sources_to_run:
             if src in results_by_source:
                 src_announcements, log_output = results_by_source[src]
                 if log_output:
                     print(log_output, end="")
-                all_announcements.extend(src_announcements)
+                for announcement in src_announcements:
+                    if (
+                        announcement.kind == "source_notice"
+                        and announcement.source == "SODETEGC"
+                    ):
+                        if sodetegc_notice_added:
+                            continue
+                        sodetegc_notice_added = True
+                    all_announcements.append(announcement)
 
     if all_announcements and not no_ai:
-        from job_finder.gemini_validator import GeminiValidator
-        validator = GeminiValidator()
-        if validator.enabled:
-            print(f"\n🤖 Running AI validation on {len(all_announcements)} candidate(s)...")
-            all_announcements = validator.validate_batch(all_announcements)
-            print(f"✅ AI validation complete. {len(all_announcements)} confirmed as relevant.")
+        job_candidates = [ann for ann in all_announcements if ann.kind == "job"]
+        source_notices = [ann for ann in all_announcements if ann.kind == "source_notice"]
+        if job_candidates:
+            from job_finder.gemini_validator import GeminiValidator
+
+            validator = GeminiValidator()
+            if validator.enabled:
+                print(f"\n🤖 Running AI validation on {len(job_candidates)} job candidate(s)...")
+                validated_jobs = validator.validate_batch(job_candidates)
+                if source_notices:
+                    remaining = {}
+                    for announcement in validated_jobs:
+                        key = _announcement_key(announcement)
+                        remaining[key] = remaining.get(key, 0) + 1
+                    merged = []
+                    for announcement in all_announcements:
+                        if announcement.kind == "source_notice":
+                            merged.append(announcement)
+                            continue
+                        key = _announcement_key(announcement)
+                        if remaining.get(key, 0):
+                            merged.append(announcement)
+                            remaining[key] -= 1
+                    all_announcements = merged
+                    print(
+                        f"✅ AI validation complete. {len(validated_jobs)} job finding(s) retained; "
+                        f"{len(source_notices)} source notice(s) retained for manual review."
+                    )
+                else:
+                    all_announcements = validated_jobs
+                    print(f"✅ AI validation complete. {len(all_announcements)} confirmed as relevant.")
 
     return all_announcements
 
@@ -847,15 +1061,34 @@ def lambda_handler(event, context):
     )
     
     # Send notifications via Discord and/or Telegram if configured in Env Variables
+    job_count = sum(announcement.kind == "job" for announcement in findings)
+    notice_count = len(findings) - job_count
     if findings:
         send_notifications(findings)
-        print(f"📢 AWS Lambda finished. Sent notifications for {len(findings)} job offers.")
+        if notice_count and job_count:
+            print(
+                f"📢 AWS Lambda finished. Submitted {job_count} job finding(s) and "
+                f"{notice_count} source notice(s) for notification."
+            )
+        elif notice_count:
+            print(
+                f"📢 AWS Lambda finished. Submitted {notice_count} source notice(s) "
+                "for notification; no vacancy was confirmed."
+            )
+        else:
+            print(f"📢 AWS Lambda finished. Sent notifications for {len(findings)} job offers.")
     else:
         print("📢 AWS Lambda finished. No job offers matched today.")
         
+    description = (
+        f"Successfully processed. Found {job_count} relevant jobs and "
+        f"{notice_count} source notice(s)."
+        if notice_count
+        else f"Successfully processed. Found {len(findings)} relevant jobs."
+    )
     return {
         "statusCode": 200,
-        "body": f"Successfully processed. Found {len(findings)} relevant jobs."
+        "body": description
     }
 
 
@@ -957,7 +1190,20 @@ def main() -> None:
 
     # Print final aggregated findings to console
     if all_announcements:
-        print(f"🎉 TOTAL SUCCESS: Found {len(all_announcements)} IT job opening(s) across all active sources!\n")
+        job_count = sum(announcement.kind == "job" for announcement in all_announcements)
+        notice_count = len(all_announcements) - job_count
+        if notice_count and job_count:
+            print(
+                f"📋 SCAN COMPLETE: {job_count} job finding(s) and {notice_count} "
+                "source notice(s); notices require manual review.\n"
+            )
+        elif notice_count:
+            print(
+                f"⚠️ SCAN COMPLETE: {notice_count} source notice(s) require manual review; "
+                "no vacancy was confirmed.\n"
+            )
+        else:
+            print(f"🎉 TOTAL SUCCESS: Found {len(all_announcements)} IT job opening(s) across all active sources!\n")
         for i, ann in enumerate(all_announcements, 1):
             print(format_announcement(ann))
             if i < len(all_announcements):

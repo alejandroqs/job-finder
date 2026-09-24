@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
-from typing import Union, List, Optional
+from typing import Union, List, Optional, Literal
 
 @dataclass
 class ParsedAnnouncement:
@@ -14,6 +14,7 @@ class ParsedAnnouncement:
     matched_keywords: List[str] = field(default_factory=list)
     source: str = "BOP"
     url: str = ""
+    kind: Literal["job", "source_notice"] = "job"
 
 @dataclass
 class BOPage:
@@ -164,6 +165,5 @@ class BaseAIValidator(ABC):
         If validation is unavailable, returns the full list unchanged with a warning.
         """
         pass
-
 
 

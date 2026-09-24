@@ -19,6 +19,33 @@ def generate_html_findings(announcements: List[ParsedAnnouncement]) -> str:
     """
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     total_count = len(announcements)
+    notice_count = sum(ann.kind == "source_notice" for ann in announcements)
+    job_count = total_count - notice_count
+    if notice_count:
+        page_title = "Source-page Notices" if not job_count else "IT Job Findings and Source Notices"
+        if job_count:
+            page_meta_html = (
+                '      <div class="page-meta">\n'
+                f'        <span>Scan Date: {now_str}</span>\n'
+                f'        <span>Job Findings: {job_count}</span>\n'
+                f'        <span>Source Notices: {notice_count}</span>\n'
+                '      </div>'
+            )
+        else:
+            page_meta_html = (
+                '      <div class="page-meta">\n'
+                f'        <span>Scan Date: {now_str}</span>\n'
+                f'        <span>Total Source Notices: {notice_count}</span>\n'
+                '      </div>'
+            )
+    else:
+        page_title = "IT Job Findings"
+        page_meta_html = (
+            '      <div class="page-meta">\n'
+            f'        <span>Scan Date: {now_str}</span>\n'
+            f'        <span>Total Findings: {total_count}</span>\n'
+            '      </div>'
+        )
 
     items_html_list: List[str] = []
 
@@ -30,6 +57,32 @@ def generate_html_findings(announcements: List[ParsedAnnouncement]) -> str:
         )
     else:
         for ann in announcements:
+            if ann.kind == "source_notice":
+                description_escaped = html.escape(ann.description.strip())
+                url_escaped = html.escape(ann.url, quote=True)
+                url_html = (
+                    '      <footer class="card-footer">\n'
+                    f'        <a href="{url_escaped}" target="_blank" rel="noopener noreferrer" class="bulletin-link">\n'
+                    '          Review Official Page &rarr;\n'
+                    '        </a>\n'
+                    '      </footer>\n'
+                )
+                card_html = (
+                    '    <article class="job-card source-notice">\n'
+                    '      <header class="card-header">\n'
+                    '        <div class="source-badge">Source-page notice · manual review</div>\n'
+                    '        <h2 class="organism-title">SODETEGC page status</h2>\n'
+                    '      </header>\n'
+                    '      <div class="card-body">\n'
+                    f'        <p class="description-text">{description_escaped}</p>\n'
+                    '      </div>\n'
+                    '      <div class="card-metadata">Not a confirmed vacancy.</div>\n'
+                    f'{url_html}'
+                    '    </article>'
+                )
+                items_html_list.append(card_html)
+                continue
+
             source_label = f"{ann.source} - Página" if ann.source == "BOP" else f"{ann.source} - Item"
             organism_escaped = html.escape(ann.organism.upper())
             source_label_escaped = html.escape(f"{source_label} {ann.page_number}")
@@ -80,7 +133,7 @@ def generate_html_findings(announcements: List[ParsedAnnouncement]) -> str:
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>IT Job Findings</title>
+  <title>{html.escape(page_title)}</title>
   <style>
     :root {{
       --bg-body: #18181b;       /* zinc-900 */
@@ -149,6 +202,14 @@ def generate_html_findings(announcements: List[ParsedAnnouncement]) -> str:
     .job-card:hover {{
       box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
       transform: translateY(-2px);
+    }}
+
+    .source-notice {{
+      border-color: #d97706;
+    }}
+
+    .source-notice .source-badge {{
+      color: #fbbf24;
     }}
 
     .card-header {{
@@ -240,11 +301,8 @@ def generate_html_findings(announcements: List[ParsedAnnouncement]) -> str:
 <body>
   <main class="container">
     <header class="page-header">
-      <h1 class="page-title">IT Job Findings</h1>
-      <div class="page-meta">
-        <span>Scan Date: {now_str}</span>
-        <span>Total Findings: {total_count}</span>
-      </div>
+      <h1 class="page-title">{html.escape(page_title)}</h1>
+{page_meta_html}
     </header>
 
 {cards_joined}

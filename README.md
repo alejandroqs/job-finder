@@ -3,7 +3,7 @@
 [![Python Version](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/)
 [![Testing](https://img.shields.io/badge/tests-pytest-green.svg)](https://pytest.org/)
 
-A Python command-line tool and AWS Lambda workload that monitors BOP Las Palmas, BOC, BOE, Sagulpa, Guaguas Municipales, GEURSA, GSC, Aena, Indra Group, FULP, EPSO, EURES, and eu-LISA to identify Information Technology and Software Engineering opportunities.
+A Python command-line tool and AWS Lambda workload that monitors BOP Las Palmas, BOC, BOE, Sagulpa, Guaguas Municipales, GEURSA, GSC, Aena, Indra Group, FULP, SODETEGC, EPSO, EURES, and eu-LISA to identify Information Technology and Software Engineering opportunities. SODETEGC is a source-page status monitor; its notices are not confirmed vacancies.
 
 Official sources expose different PDF, HTML, RSS, CSV, JSON, and XML formats. The project uses source-specific fetchers and parsers, shared normalization models, keyword filtering, optional Gemini validation, and Markdown or HTML exports.
 
@@ -123,7 +123,7 @@ graph TD
 The tool exposes two CLI commands: `job-finder` and the newly mapped `bo-finder`.
 
 ### 1. Basic Run (Scans the selected sources with smart fallback)
-Downloads and processes the selected sources; the default `ALL` group includes all thirteen integrations and outputs matches.
+Downloads and processes the selected sources; the default `ALL` group includes all fourteen integrations and outputs findings and source-page notices.
 
 **Smart Fallbacks**: If today's gazettes are not yet published or it is a weekend/holiday:
 * For **BOP**: The tool automatically scrapes the index to find the latest published bulletin.
@@ -141,18 +141,20 @@ python -m job_finder.main --date 2026-05-21
 ```
 
 ### 3. Filter by Source
-Target a source or group (`BOP`, `BOC`, `BOE`, `SAGULPA`, `GUAGUAS`, `GEURSA`, `GSC`, `AENA`, `INDRA`, `FULP`, `EPSO`, `EURES`, `EULISA`, `ES`, `EU`, or `ALL`; default is `ALL`):
+Target a source or group (`BOP`, `BOC`, `BOE`, `SAGULPA`, `GUAGUAS`, `GEURSA`, `GSC`, `AENA`, `INDRA`, `FULP`, `SODETEGC`, `EPSO`, `EURES`, `EULISA`, `ES`, `EU`, or `ALL`; default is `ALL`):
 ```powershell
 python -m job_finder.main --source BOE
 ```
 
 ### 4. Parse a Local File (Auto-detection)
-Provide a local PDF, XML/RSS, HTML, CSV, or JSON file and the tool routes it to the appropriate parser without downloading that source first. Guaguas HTML is detected from its filename or a parser-supported employment container anywhere in the full document, while GEURSA HTML uses a parser-supported active heading plus accordion structure. GSC HTML uses a bounded `gsc` filename token or the parser-supported `#seleccion` plus `.projects_holder.portfolio_main_holder` structure; its parser reads only direct cards in that holder. FULP HTML uses a bounded `fulp` filename token or the parser-supported `.panel_ofertas` listing / `.Content-Oferta` detail structure. Offline FULP details require a canonical or `og:url` identity, while listing snapshots provide listing evidence only and do not fetch details. Generic employment-page phrases or a source mention alone do not provide structural recognition. A local run can still call Gemini and send notifications when those integrations are configured; use `--no-ai` and unset notification variables for an isolated parser check:
+Provide a local PDF, XML/RSS, HTML, CSV, or JSON file and the tool routes it to the appropriate parser without downloading that source first. Guaguas HTML is detected from its filename or a parser-supported employment container anywhere in the full document, while GEURSA HTML uses a parser-supported active heading plus accordion structure. GSC HTML uses a bounded `gsc` filename token or the parser-supported `#seleccion` plus `.projects_holder.portfolio_main_holder` structure; its parser reads only direct cards in that holder. FULP HTML uses a bounded `fulp` filename token or the parser-supported `.panel_ofertas` listing / `.Content-Oferta` detail structure. Offline FULP details require a canonical or `og:url` identity, while listing snapshots provide listing evidence only and do not fetch details. SODETEGC HTML is routed only when its official employment-page identity and structural signature are present; a filename alone does not select it. Valid unknown-extension HTML can be recognized from the same signature. Generic employment-page phrases or a source mention alone do not provide structural recognition. A local run can still call Gemini for ordinary job findings and send notifications when those integrations are configured; use `--no-ai` and unset notification variables for an isolated parser check:
 ```powershell
 python -m job_finder.main --file tests/fixtures/boe_sample.xml --no-ai
 ```
 
 GSC reads only direct cards in the current `#seleccion` list holder. It accepts a leading `DD/MM/YYYY` or `DD-MM-YYYY` publication date and monitors the inclusive eight-date window through publication plus seven days; that inferred date is a monitoring heuristic, not an official application deadline. Administrative, result, applicant-list, correction, subsanación, exam/stage, and cancelled notices are excluded before IT filtering. A historical date does not retrieve historical website state, and repeated scans in the same window can repeat findings because there is no persistent cross-run deduplication.
+
+SODETEGC monitors the visible text owned by the `Convocatorias abiertas` section at [`sodetegc.org/conocenos/informacion-administrativa/empleo`](https://www.sodetegc.org/conocenos/informacion-administrativa/empleo/). It compares the whole section with the fixed reference “Actualmente no hay ninguna convocatoria abierta”. A recognized match is silent; a recognized difference produces a source-page notice for manual review, not a confirmed vacancy. Every successful scan while the section differs emits a notice; there is no transition tracking or persistent deduplication. A missing or ambiguous section, invalid page identity, or fetch/parse failure is reported as unverifiable and does not become a notice. `--date` does not retrieve historical page state. SODETEGC notices bypass keyword filtering and Gemini validation.
 
 Indra Group uses the server-rendered `https://careers.indragroup.com/search/` endpoint. By default it performs one blank `q=` search and follows the official pagination links; an optional top-level `portal_search_keywords` list in the selected YAML file deliberately narrows discovery and is independent of the shared include/exclude rules. `#noresults` is authoritative even when the page contains suggestion rows. The source keeps official numeric IDs and clean official URLs, deduplicates before detail retrieval and AI, and applies geographic prefiltering from published structured mode/location evidence. Recognised Portugal or Brazil country components are excluded before `Remote`/`Remoto`, `Indiferente`, or explicit Gran Canaria evidence can admit a job; unknown or unsupported mode/location evidence does not become remote. Offline listing snapshots cannot invent missing modality or fetch details. Accepted jobs then enter the shared IT/employment filter and optional Gemini validation. The [INDRA-only AI prompt preference](docs/configuration.md#gemini-prompt-and-indra-only-preference) covers core SAP, named-platform and dedicated SAST/DAST roles, while incidental tool use and Power BI-focused work remain eligible under the configured instructions. `--no-ai` skips that preference, and failed AI validation retains candidates; live model classification has not been verified. Gemini receives only the first 1,500 characters, and no persistent cross-run deduplication exists. Historical bounded discovery checks had both incomplete and point-in-time complete outcomes; neither proves current catalogue or full detail coverage. Lambda runtime suitability remains unverified.
 

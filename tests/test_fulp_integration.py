@@ -237,9 +237,9 @@ def test_fulp_group_membership_is_once_and_eu_precedence_is_unchanged(monkeypatc
 
     for selected, expected, count in (
         ("FULP", {"FULP"}, 1),
-        ("ES", {"BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "GEURSA", "GSC", "AENA", "INDRA", "FULP"}, 10),
+        ("ES", {"BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "GEURSA", "GSC", "AENA", "INDRA", "FULP", "SODETEGC"}, 11),
         ("EU", {"EPSO", "EURES", "EULISA"}, 3),
-        ("ALL", {"BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "GEURSA", "GSC", "AENA", "INDRA", "FULP", "EPSO", "EURES", "EULISA"}, 13),
+        ("ALL", {"BOP", "BOC", "BOE", "SAGULPA", "GUAGUAS", "GEURSA", "GSC", "AENA", "INDRA", "FULP", "SODETEGC", "EPSO", "EURES", "EULISA"}, 14),
     ):
         calls.clear()
         main.run_scan(sources=[selected], no_ai=True)

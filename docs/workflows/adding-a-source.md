@@ -11,8 +11,8 @@ Source of truth: [`interfaces.py`](../../src/job_finder/interfaces.py), [`main.p
 1. Classify the source as a gazette, web board, or European feed and identify its raw format, publication/deadline semantics, and external failure modes.
 2. Choose the matching abstract interface in `interfaces.py`. Keep fetching separate from parsing.
 3. Implement a fetcher with explicit timeout, response/error handling, and no secrets in source.
-4. Implement a parser that normalizes records into `BOPage` with a stable source label, text, organism, page/item number, and URL.
-5. Decide whether the common Spanish or EU keyword path is correct. Add source-specific configuration only when it cannot be expressed by existing rules.
+4. For offer sources, implement a parser that normalizes records into `BOPage` with a stable source label, text, organism, page/item number, and URL. A bounded status monitor can instead return a typed observation; do not force it into `BOPage` or fake detail methods when those contracts do not fit.
+5. Decide whether the common Spanish or EU keyword path is correct. A typed source notice may bypass it only when the notice is an application-created status signal, not a workaround based on page text. Add source-specific configuration only when it cannot be expressed by existing rules.
 6. Add the source to `_scan_single_source`, source selection groups, CLI choices, and local-file detection if offline parsing is supported.
 7. Add deterministic fixtures and tests for normal extraction, filtering, dates, malformed/empty input, and expected failure fallbacks.
 8. Update `docs/sources/index.md`, the relevant family document, `configuration.md`, `architecture.md`, and `README.md` if the human usage surface changes.

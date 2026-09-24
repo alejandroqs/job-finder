@@ -16,7 +16,7 @@ Source of truth: [`main.py`](../src/job_finder/main.py), [`.env.example`](../.en
 | `--file` | local path, omitted by default | Parses an offline PDF, XML/RSS, HTML, CSV, or JSON file and auto-detects the source. Mutually exclusive with `--date`. Indra routing accepts a bounded detail signature or an explicitly named `indra` file, while detail parsing still requires a reliable official identity; FULP routing accepts a bounded `fulp` filename token or supported list/detail structure, and offline FULP details still require canonical/`og:url` identity; listing snapshots do not infer missing detail evidence. |
 | `--source`, `-s` | one of `BOP`, `BOC`, `BOE`, `SAGULPA`, `GUAGUAS`, `GEURSA`, `GSC`, `AENA`, `INDRA`, `FULP`, `EPSO`, `EURES`, `EULISA`, `EU`, `ES`, `ALL`; default `ALL` | Selects individual sources or a group. |
 | `--config` | optional path | Replaces the default `src/job_finder/keywords.yaml`. |
-| `--no-ai` | false by default | Skips the Gemini validation stage, including the Indra-only SAP/proprietary-platform preference. It does not disable parser-stage country exclusion, fetching, exports, or notifications. |
+| `--no-ai` | false by default | Skips the Gemini validation stage, including the [Indra-only role preference](#gemini-prompt-and-indra-only-preference). It does not disable parser-stage country exclusion, fetching, exports, or notifications. |
 | `--output` | `findings.md` | Destination overwritten by the selected exporter. |
 | `--format` | `markdown` or `html`; default `markdown` | Selects the exporter. An `.html` output suffix overrides the format. |
 
@@ -65,6 +65,8 @@ descriptions or matched keywords, and does not change the Gemini prompt. A
 non-empty list deliberately narrows discovery and cannot claim complete
 catalogue coverage.
 
+### Gemini prompt and Indra-only preference
+
 [`config_prompts.yaml`](../src/job_finder/config_prompts.yaml) supplies the system prompt and user prompt template for Gemini. The validator inserts a JSON job list into the template and expects a structured response matching its Pydantic schema. Prompt changes can alter filtering outcomes and should be reviewed as behaviour changes.
 
 The general path requires an IT keyword after boilerplate removal and an
@@ -80,8 +82,16 @@ The prompt covers public and private employment, including cybersecurity roles
 without coding or data/AI duties. It distinguishes cyber work from physical
 security and unrelated compliance, treats source instructions as untrusted,
 and retains plausible ambiguous recruitment with low confidence. Each input
-also carries an application-supplied source field; only `INDRA` activates the
-additional SAP and narrowly defined named proprietary-platform preference.
-It does not establish international contractual eligibility or personal
-suitability. A disabled or failing validator retains candidates by design.
-These are prompt instructions, not guarantees of live model behaviour.
+also carries an application-supplied source field. Only `INDRA` activates the
+additional prompt preference against roles whose core work is SAP (including
+ABAP, Basis, HCM/SuccessFactors and module consulting or administration), core
+SailPoint, Okta, CyberArk or Cegid PeopleNet specialisation, central work in a
+named proprietary enterprise platform, or centrally dedicated SAST/DAST
+application-security consulting or specialisation. Incidental mentions or
+ordinary tool use in broader software, data, cloud or security roles are not
+enough for rejection; Power BI-focused roles and SAP data integration remain
+eligible unless the primary role meets an exclusion. This is an AI-stage prompt
+instruction, not a parser or shared-keyword rule: `--no-ai` skips it, and a
+failing validator retains candidates by design. It does not establish
+international contractual eligibility or personal suitability. Mocked tests
+check prompt and source plumbing, not live Gemini classification.

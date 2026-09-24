@@ -82,17 +82,22 @@ when their numeric suffix matches a job. No synthetic `convocatoria` or
 
 The geographic prefilter accepts explicit `Remoto`/`Remote`, explicit
 `Indiferente` as `FLEXIBLE_OR_UNSPECIFIED`, or an actual structured location
-that explicitly names `Gran Canaria` or `Las Palmas de Gran Canaria`. Work-mode
-normalisation accepts only explicit supported values; negated, mixed, unknown,
-or conflicting values remain `UNKNOWN` and never imply remote. Madrid hybrid,
-Spain with unknown mode, ambiguous `Las Palmas`, and unsupported `LPGC` are
-rejected or remain unknown. Country is metadata rather than a rejection rule,
-so Mexico plus Remote is retained. A failed or identity-mismatched detail is
-skipped with a diagnostic and never treated as geographic evidence. The source
-uses the unchanged shared title, IT-keyword, and employment-anchor filter both
-offline and after online detail extraction, then the existing optional Gemini
-stage; its role-relevance prompt does not establish international
-contractual eligibility.
+that explicitly names `Gran Canaria` or `Las Palmas de Gran Canaria`, after
+rejecting recognised Portugal/PT/PRT or Brazil/Brasil/BR/BRA components in
+structured country or location fields. An excluded component still rejects a
+mixed-country value; non-excluded country conflicts add no separate rejection,
+so Mexico plus Remote can be retained. Parenthetical annotations and arbitrary
+street or client prose do not supply country evidence. Work-mode normalisation
+accepts only explicit supported values; negated, mixed, unknown, or conflicting
+values remain `UNKNOWN` and never imply remote. Madrid hybrid, Spain with
+unknown mode, ambiguous `Las Palmas`, and unsupported `LPGC` are rejected or
+remain unknown. A failed or identity-mismatched detail is skipped with a
+diagnostic and never treated as geographic evidence. The source uses the
+unchanged shared title, IT-keyword, and employment-anchor filter both offline
+and after online detail extraction, then optional Gemini validation. Only
+`INDRA` activates the [configured AI-stage role preference](../configuration.md#gemini-prompt-and-indra-only-preference);
+it does not establish international contractual eligibility or guarantee live
+model classification.
 
 ## Aena
 
